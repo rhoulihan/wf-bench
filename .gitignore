@@ -70,3 +70,5 @@ results/
 # Secrets - never commit connection strings with passwords
 *-secrets.yaml
 *-private.yaml
+connstr.txt
+*-credentials*
