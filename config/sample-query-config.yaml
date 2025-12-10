@@ -1,0 +1,179 @@
+# Sample Query Configuration for WF Benchmark Tool
+# Copy this file and modify as needed
+
+connection:
+  # MongoDB connection string for Oracle MongoDB API
+  connectionString: "mongodb://admin:OracleJson1!@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloudapps.com:27017/admin?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true"
+  database: "benchmark"
+  connectionPoolSize: 10
+
+queryExecution:
+  iterations: 10           # Measured iterations per query
+  warmupIterations: 3      # Warmup iterations (not measured)
+  threads: 1               # Concurrent query threads
+  includeExplainPlan: true # Capture explain plan
+
+# Index definitions - created before running queries
+indexes:
+  - collection: "identity"
+    name: "idx_identity_taxid"
+    keys:
+      common.taxIdentificationNumber: 1
+    options:
+      background: true
+
+  - collection: "identity"
+    name: "idx_identity_fullname"
+    keys:
+      common.fullName: 1
+    options:
+      background: true
+
+  - collection: "identity"
+    name: "idx_identity_entity_type"
+    keys:
+      common.entityTypeIndicator: 1
+    options:
+      background: true
+
+  - collection: "address"
+    name: "idx_address_state_city"
+    keys:
+      addresses.stateCode: 1
+      addresses.cityName: 1
+
+  - collection: "address"
+    name: "idx_address_postal"
+    keys:
+      addresses.postalCode: 1
+
+  - collection: "phone"
+    name: "idx_phone_customer"
+    keys:
+      phoneKey.customerNumber: 1
+      phoneKey.customerCompanyNumber: 1
+
+  - collection: "phone"
+    name: "idx_phone_type"
+    keys:
+      phoneKey.phoneNumberTypeCode: 1
+
+# Query definitions
+queries:
+  # Primary key lookup - should be fast with _id index
+  - name: "find_by_customer_number"
+    description: "Find identity by primary key"
+    collection: "identity"
+    type: "find"
+    filter:
+      _id.customerNumber: "${param:customerNumber}"
+      _id.customerCompanyNumber: 1
+    parameters:
+      customerNumber:
+        type: "random_range"
+        min: 1000000001
+        max: 1000100000
+    expectedResults: 1
+
+  # Secondary index lookup
+  - name: "find_by_taxid"
+    description: "Find customer by tax ID (indexed)"
+    collection: "identity"
+    type: "find"
+    filter:
+      common.taxIdentificationNumber: "${param:taxId}"
+    parameters:
+      taxId:
+        type: "random_range"
+        min: 100000000
+        max: 999999999
+
+  # Entity type filter
+  - name: "find_business_customers"
+    description: "Find non-individual customers"
+    collection: "identity"
+    type: "find"
+    filter:
+      common.entityTypeIndicator: "NON_INDIVIDUAL"
+    limit: 100
+
+  # Address by state lookup
+  - name: "find_addresses_by_state"
+    description: "Find addresses in a specific state"
+    collection: "address"
+    type: "find"
+    filter:
+      addresses.stateCode: "${param:state}"
+    limit: 100
+    parameters:
+      state:
+        type: "random_choice"
+        values: ["CA", "TX", "NY", "FL", "IL", "PA", "OH", "GA"]
+
+  # Phone lookup by customer
+  - name: "find_phones_for_customer"
+    description: "Find all phone numbers for a customer"
+    collection: "phone"
+    type: "find"
+    filter:
+      phoneKey.customerNumber: "${param:customerNumber}"
+    parameters:
+      customerNumber:
+        type: "random_range"
+        min: 1000000001
+        max: 1000100000
+
+  # Mobile phones only
+  - name: "find_mobile_phones"
+    description: "Find mobile phone records"
+    collection: "phone"
+    type: "find"
+    filter:
+      phoneKey.phoneNumberTypeCode: "MOBILE"
+    limit: 100
+
+  # Aggregation - count by state
+  - name: "aggregate_addresses_by_state"
+    description: "Count addresses grouped by state"
+    collection: "address"
+    type: "aggregate"
+    pipeline:
+      - $unwind: "$addresses"
+      - $group:
+          _id: "$addresses.stateCode"
+          count:
+            $sum: 1
+      - $sort:
+          count: -1
+      - $limit: 10
+
+  # Aggregation - count by entity type
+  - name: "aggregate_by_entity_type"
+    description: "Count customers by entity type"
+    collection: "identity"
+    type: "aggregate"
+    pipeline:
+      - $group:
+          _id: "$common.entityTypeIndicator"
+          count:
+            $sum: 1
+
+  # Aggregation - phone type distribution
+  - name: "aggregate_phone_types"
+    description: "Count phones by type"
+    collection: "phone"
+    type: "aggregate"
+    pipeline:
+      - $group:
+          _id: "$phoneKey.phoneNumberTypeCode"
+          count:
+            $sum: 1
+      - $sort:
+          count: -1
+
+  # Count query
+  - name: "count_all_identities"
+    description: "Count total identity documents"
+    collection: "identity"
+    type: "count"
+    filter: {}

@@ -1,0 +1,45 @@
+# Sample Load Configuration for WF Benchmark Tool
+# Copy this file and modify as needed
+
+connection:
+  # MongoDB connection string for Oracle MongoDB API
+  connectionString: "mongodb://admin:OracleJson1!@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloudapps.com:27017/admin?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true"
+  database: "benchmark"
+  connectionPoolSize: 20
+
+load:
+  # Scale presets: SMALL (10K), MEDIUM (100K), LARGE (1M), XLARGE (10M)
+  scale: "MEDIUM"
+
+  # Override specific counts (optional - takes precedence over scale)
+  # identityCount: 100000
+
+  # Document ratios relative to identity count
+  addressRatio: 1.0      # 1 address document per identity
+  phoneRatio: 2.5        # 2.5 phone documents per identity
+
+  # Performance tuning
+  threads: 8             # Parallel writer threads
+  batchSize: 1000        # Documents per batch insert
+  dropExisting: true     # Drop collections before loading
+  collectionPrefix: ""   # Prefix for collection names (e.g., "test_")
+
+  # Write behavior
+  writeConcern: "acknowledged"  # majority, acknowledged, unacknowledged
+  ordered: false               # Unordered = faster, ordered = safer
+
+  # Progress reporting
+  progressInterval: 5000       # Report progress every N documents
+  quiet: false                 # Suppress progress output
+
+  # Data generation options
+  dataGeneration:
+    individualRatio: 0.7       # 70% individuals, 30% businesses
+
+    addressesPerCustomer:
+      min: 1
+      max: 4
+
+    phonesPerCustomer:
+      min: 1
+      max: 5
