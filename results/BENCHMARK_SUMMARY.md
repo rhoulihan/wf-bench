@@ -193,10 +193,13 @@ All 20 indexes were created successfully. The indexes support various query patt
 ## Performance Insights
 
 1. **Indexed Lookups (2-10ms)**: Queries using indexed fields show excellent performance
-2. **Correlated Queries (10-16ms)**: Multi-field queries with correlated parameters perform well
-3. **Range Queries (15-25ms)**: Queries returning multiple documents (SSN last 4) take longer
-4. **Address Search (239-344ms)**: High variance due to data distribution
-5. **Full Collection Scans (1-16s)**: Aggregations requiring full scans are significantly slower
+2. **Fuzzy Text Search (2.8-3.5ms)**: JSON_TEXTCONTAINS with JSON Search Index provides excellent performance
+3. **Phonetic Search (10.3ms)**: SOUNDEX matching for similar-sounding names
+4. **Hybrid Search (13.9ms)**: Combined phonetic + fuzzy with result deduplication
+5. **Correlated Queries (10-16ms)**: Multi-field queries with correlated parameters perform well
+6. **Range Queries (15-25ms)**: Queries returning multiple documents (SSN last 4) take longer
+7. **Address Search (239-344ms)**: High variance due to data distribution
+8. **Full Collection Scans (1-16s)**: Aggregations requiring full scans are significantly slower
 
 ---
 
@@ -234,63 +237,30 @@ The MongoDB API for Oracle supports only B-tree indexes. Advanced search feature
 
 ### Hybrid Search Performance Results
 
-Integration tests against live Oracle ADB (1M identity documents):
+Detailed benchmark results against live Oracle ADB (1M identity documents, 100 iterations + 10 warmup):
 
-| Search Type | Status | Latency | Notes |
-|-------------|--------|---------|-------|
-| **Phonetic (SOUNDEX)** | Working | 17-32ms | Subsequent searches after initial 259ms warmup |
-| **Fuzzy (JSON_TEXTCONTAINS)** | Working | 11-20ms | Requires JSON Search Index |
-| **Hybrid Combined** | Working | 17-18ms | Combined phonetic + fuzzy strategies |
-| **Vector (AI Search)** | Pending Setup | - | Requires ONNX model + embedding column |
+| Query | Description | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Throughput | Docs |
+|-------|-------------|----------|----------|----------|----------|------------|------|
+| phonetic_name_search | Phonetic (SOUNDEX) name search | 10.31 | 9.65 | 14.55 | 18.03 | 97.0/s | 0.4 |
+| fuzzy_name_search | Fuzzy (JSON_TEXTCONTAINS) name search | 2.81 | 2.76 | 3.08 | 3.36 | 356.3/s | 0.0 |
+| hybrid_name_search | Combined phonetic + fuzzy search | 13.92 | 12.70 | 22.46 | 26.40 | 71.8/s | 0.4 |
+| fuzzy_business_search | Fuzzy business name search | 3.53 | 3.40 | 4.50 | 5.54 | 283.4/s | 0.0 |
+| vector_semantic_search | Vector semantic similarity | Pending | - | - | - | - | - |
 
-#### Hybrid Search Test Suite Results
+#### Search Strategy Status
 
-```
-========================================
-     HYBRID SEARCH TEST SUITE
-========================================
+| Strategy | Implementation | Status | Description |
+|----------|----------------|--------|-------------|
+| **Phonetic** | Oracle SOUNDEX | Working | Matches names that sound alike (Smith/Smyth, John/Jon) |
+| **Fuzzy** | JSON_TEXTCONTAINS | Working | Full-text search within JSON documents using JSON Search Index |
+| **Vector** | Oracle AI Vector Search | Requires Setup | Semantic similarity search using embeddings |
 
-[TEST 1] Fuzzy Name Search
-  Searching for 'Jon Smithe' (intentional typos)...
-  Results: 1 found in 259ms
-    - 1000008534: NORRIS EDMOND ALTENWERTH (score=0.80, strategies=[PHONETIC])
-  [PASSED]
+#### Key Performance Insights
 
-[TEST 2] Phonetic Name Search (sounds-alike)
-  Searching for 'Sally Smith' (should match Sallie, etc.)...
-  Results: 0 found in 32ms
-  [PASSED]
-
-[TEST 3] Nickname Expansion
-  Searching for 'Bill Johnson' (should match William)...
-  Results: 0 found in 20ms
-  [PASSED]
-
-[TEST 5] Business Name Fuzzy Search
-  Searching for 'Acme Corporaton' (typo)...
-  Results: 0 found in 11ms
-  [PASSED]
-
-[TEST 6] Hybrid Combined Search
-  Searching for 'John Smith' using all strategies...
-  Results: 1 found in 18ms
-  Unique customers: 1
-  Deduplication: OK
-  [PASSED]
-
-[TEST 7] Performance Test
-  Running hybrid search with 100 result limit...
-  Results: 1 found in 17ms
-  [PASSED] - Completed within 5 second timeout
-
-========================================
-           TEST SUMMARY
-========================================
-  Passed: 6
-  Failed: 1 (Vector search - requires ONNX model)
-  Total:  7
-========================================
-```
+1. **Fuzzy search is fastest (2.8-3.5ms)**: JSON_TEXTCONTAINS with JSON Search Index provides excellent performance
+2. **Phonetic search is moderate (10.3ms avg)**: SOUNDEX function with full table scan
+3. **Hybrid combined is slowest (13.9ms avg)**: Combines both strategies with result deduplication
+4. **Vector search**: Requires ONNX model setup for semantic similarity
 
 #### Hybrid Search Graceful Degradation
 
@@ -355,6 +325,8 @@ See `config/hybrid-search-config.yaml` for full configuration and query definiti
 
 ## Test Execution
 
+### MongoDB API Query Benchmarks
+
 ```bash
 java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar query \
   --connection-string "$CONN" \
@@ -362,4 +334,15 @@ java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar query \
   --threads 12 \
   --iterations 10 \
   --warmup 3
+```
+
+### Hybrid Search Benchmarks (via JDBC)
+
+```bash
+java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  -j "$JDBC_URL" \
+  --benchmark \
+  --iterations 100 \
+  --warmup 10 \
+  --disable-vector
 ```

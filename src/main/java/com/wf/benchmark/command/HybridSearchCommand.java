@@ -3,6 +3,7 @@ package com.wf.benchmark.command;
 import com.wf.benchmark.search.*;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.HdrHistogram.Histogram;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -10,6 +11,7 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 
@@ -104,6 +106,15 @@ public class HybridSearchCommand implements Callable<Integer> {
     @Option(names = {"-q", "--quiet"}, description = "Suppress progress output", defaultValue = "false")
     private boolean quiet;
 
+    @Option(names = {"--benchmark"}, description = "Run benchmark mode with detailed metrics", defaultValue = "false")
+    private boolean benchmarkMode;
+
+    @Option(names = {"-i", "--iterations"}, description = "Number of benchmark iterations", defaultValue = "10")
+    private int iterations;
+
+    @Option(names = {"-w", "--warmup"}, description = "Number of warmup iterations", defaultValue = "3")
+    private int warmupIterations;
+
     @Override
     public Integer call() {
         try {
@@ -136,6 +147,10 @@ public class HybridSearchCommand implements Callable<Integer> {
             hybridSearchService.setFuzzyEnabled(!disableFuzzy);
             hybridSearchService.setPhoneticEnabled(!disablePhonetic);
             hybridSearchService.setVectorEnabled(!disableVector);
+
+            if (benchmarkMode) {
+                return runBenchmark(hybridSearchService);
+            }
 
             if (runAllTests) {
                 return runAllHybridTests(hybridSearchService);
@@ -763,5 +778,348 @@ public class HybridSearchCommand implements Callable<Integer> {
 
         // Return success if at least one index was created
         return (textResult == 0 || vectorResult == 0) ? 0 : 1;
+    }
+
+    /**
+     * Run benchmark mode with detailed metrics collection.
+     * Runs multiple iterations with warmup and collects p50/p95/p99 latencies.
+     */
+    private int runBenchmark(HybridSearchService service) {
+        System.out.println("================================================================================");
+        System.out.println("                    HYBRID SEARCH BENCHMARK");
+        System.out.println("================================================================================");
+        System.out.println();
+        System.out.println("Configuration:");
+        System.out.println("  Collection:         " + collection);
+        System.out.println("  Iterations:         " + iterations);
+        System.out.println("  Warmup iterations:  " + warmupIterations);
+        System.out.println("  Fuzzy enabled:      " + !disableFuzzy);
+        System.out.println("  Phonetic enabled:   " + !disablePhonetic);
+        System.out.println("  Vector enabled:     " + !disableVector);
+        System.out.println();
+
+        List<BenchmarkResult> results = new ArrayList<>();
+
+        // Define benchmark scenarios
+        String[][] nameSearches = {
+            {"John", "Smith"},
+            {"Mary", "Johnson"},
+            {"Robert", "Williams"},
+            {"Jon", "Smithe"},      // Typos for fuzzy
+            {"Bill", "Johnson"},   // Nickname expansion
+        };
+
+        String[] businessSearches = {
+            "Acme Corporation",
+            "Tech Solutions",
+            "Global Services"
+        };
+
+        // Benchmark 1: Phonetic-only name search
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: phonetic_name_search");
+        System.out.println("Description: Phonetic (SOUNDEX) name search");
+        System.out.println("--------------------------------------------------------------------------------");
+        service.setFuzzyEnabled(false);
+        service.setPhoneticEnabled(true);
+        service.setVectorEnabled(false);
+        BenchmarkResult phoneticResult = runSearchBenchmark(service, "phonetic_name_search",
+            "Phonetic (SOUNDEX) name search", nameSearches, null);
+        results.add(phoneticResult);
+        printBenchmarkResult(phoneticResult);
+
+        // Benchmark 2: Fuzzy-only name search
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: fuzzy_name_search");
+        System.out.println("Description: Fuzzy (JSON_TEXTCONTAINS) name search");
+        System.out.println("--------------------------------------------------------------------------------");
+        service.setFuzzyEnabled(true);
+        service.setPhoneticEnabled(false);
+        service.setVectorEnabled(false);
+        BenchmarkResult fuzzyResult = runSearchBenchmark(service, "fuzzy_name_search",
+            "Fuzzy (JSON_TEXTCONTAINS) name search", nameSearches, null);
+        results.add(fuzzyResult);
+        printBenchmarkResult(fuzzyResult);
+
+        // Benchmark 3: Hybrid name search (phonetic + fuzzy)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: hybrid_name_search");
+        System.out.println("Description: Combined phonetic + fuzzy name search");
+        System.out.println("--------------------------------------------------------------------------------");
+        service.setFuzzyEnabled(!disableFuzzy);
+        service.setPhoneticEnabled(!disablePhonetic);
+        service.setVectorEnabled(false);
+        BenchmarkResult hybridResult = runSearchBenchmark(service, "hybrid_name_search",
+            "Combined phonetic + fuzzy name search", nameSearches, null);
+        results.add(hybridResult);
+        printBenchmarkResult(hybridResult);
+
+        // Benchmark 4: Fuzzy business name search
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: fuzzy_business_search");
+        System.out.println("Description: Fuzzy business name search");
+        System.out.println("--------------------------------------------------------------------------------");
+        service.setFuzzyEnabled(true);
+        service.setPhoneticEnabled(false);
+        service.setVectorEnabled(false);
+        BenchmarkResult businessResult = runBusinessBenchmark(service, "fuzzy_business_search",
+            "Fuzzy business name search", businessSearches);
+        results.add(businessResult);
+        printBenchmarkResult(businessResult);
+
+        // Benchmark 5: Vector search (if enabled and available)
+        if (!disableVector) {
+            System.out.println("--------------------------------------------------------------------------------");
+            System.out.println("Benchmark: vector_semantic_search");
+            System.out.println("Description: Vector semantic similarity search");
+            System.out.println("--------------------------------------------------------------------------------");
+            service.setFuzzyEnabled(false);
+            service.setPhoneticEnabled(false);
+            service.setVectorEnabled(true);
+            BenchmarkResult vectorResult = runVectorBenchmark(service, "vector_semantic_search",
+                "Vector semantic similarity search");
+            results.add(vectorResult);
+            printBenchmarkResult(vectorResult);
+        }
+
+        // Reset service configuration
+        service.setFuzzyEnabled(!disableFuzzy);
+        service.setPhoneticEnabled(!disablePhonetic);
+        service.setVectorEnabled(!disableVector);
+
+        // Print summary table
+        printBenchmarkSummary(results);
+
+        return 0;
+    }
+
+    private BenchmarkResult runSearchBenchmark(HybridSearchService service, String name, String description,
+                                                String[][] nameSearches, String ignored) {
+        // Histogram for latencies from 1 microsecond to 60 seconds with 3 significant digits
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+
+        int searchIndex = 0;
+
+        // Warmup iterations
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] names = nameSearches[searchIndex % nameSearches.length];
+            searchIndex++;
+            try {
+                service.searchByName(names[0], names[1], collection, limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] names = nameSearches[searchIndex % nameSearches.length];
+            searchIndex++;
+            try {
+                long start = System.nanoTime();
+                List<HybridSearchResult> results = service.searchByName(names[0], names[1], collection, limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000); // Convert to microseconds
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult(name, description, histogram, iterations, warmupIterations,
+            totalResults, errors);
+    }
+
+    private BenchmarkResult runBusinessBenchmark(HybridSearchService service, String name, String description,
+                                                  String[] businessNames) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+
+        int searchIndex = 0;
+
+        // Warmup iterations
+        for (int i = 0; i < warmupIterations; i++) {
+            String businessName = businessNames[searchIndex % businessNames.length];
+            searchIndex++;
+            try {
+                service.searchByBusinessDescription(businessName, collection, limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String businessName = businessNames[searchIndex % businessNames.length];
+            searchIndex++;
+            try {
+                long start = System.nanoTime();
+                List<HybridSearchResult> results = service.searchByBusinessDescription(businessName, collection, limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult(name, description, histogram, iterations, warmupIterations,
+            totalResults, errors);
+    }
+
+    private BenchmarkResult runVectorBenchmark(HybridSearchService service, String name, String description) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+
+        String[] queries = {
+            "customers in banking and finance",
+            "technology sector professionals",
+            "healthcare industry workers",
+            "retail business owners"
+        };
+
+        int searchIndex = 0;
+
+        // Warmup iterations
+        for (int i = 0; i < warmupIterations; i++) {
+            String query = queries[searchIndex % queries.length];
+            searchIndex++;
+            try {
+                service.searchByDescription(query, collection, limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String query = queries[searchIndex % queries.length];
+            searchIndex++;
+            try {
+                long start = System.nanoTime();
+                List<HybridSearchResult> results = service.searchByDescription(query, collection, limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult(name, description, histogram, iterations, warmupIterations,
+            totalResults, errors);
+    }
+
+    private void printBenchmarkResult(BenchmarkResult result) {
+        System.out.println();
+        System.out.printf("  Iterations:      %d (+ %d warmup)%n", result.iterations, result.warmupIterations);
+        System.out.printf("  Avg Latency:     %.2f ms%n", result.getAvgLatencyMs());
+        System.out.printf("  Min Latency:     %.2f ms%n", result.getMinLatencyMs());
+        System.out.printf("  Max Latency:     %.2f ms%n", result.getMaxLatencyMs());
+        System.out.printf("  P50 Latency:     %.2f ms%n", result.getP50LatencyMs());
+        System.out.printf("  P95 Latency:     %.2f ms%n", result.getP95LatencyMs());
+        System.out.printf("  P99 Latency:     %.2f ms%n", result.getP99LatencyMs());
+        System.out.printf("  Throughput:      %.1f ops/sec%n", result.getThroughput());
+        System.out.printf("  Avg Results:     %.1f docs%n", result.getAvgResults());
+        if (result.errors > 0) {
+            System.out.printf("  Errors:          %d%n", result.errors);
+        }
+        System.out.println();
+    }
+
+    private void printBenchmarkSummary(List<BenchmarkResult> results) {
+        System.out.println();
+        System.out.println("================================================================================");
+        System.out.println("                         BENCHMARK SUMMARY");
+        System.out.println("================================================================================");
+        System.out.println();
+        System.out.println("| Query | Description | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Throughput | Docs |");
+        System.out.println("|-------|-------------|----------|----------|----------|----------|------------|------|");
+
+        for (BenchmarkResult result : results) {
+            if (result.histogram.getTotalCount() > 0) {
+                String desc = result.description;
+                if (desc.length() > 35) {
+                    desc = desc.substring(0, 32) + "...";
+                }
+                System.out.printf("| %s | %s | %.2f | %.2f | %.2f | %.2f | %.1f/s | %.1f |%n",
+                    result.name,
+                    desc,
+                    result.getAvgLatencyMs(),
+                    result.getP50LatencyMs(),
+                    result.getP95LatencyMs(),
+                    result.getP99LatencyMs(),
+                    result.getThroughput(),
+                    result.getAvgResults());
+            } else {
+                System.out.printf("| %s | %s | FAILED | - | - | - | - | - |%n",
+                    result.name, result.description);
+            }
+        }
+
+        System.out.println();
+        System.out.println("================================================================================");
+    }
+
+    /**
+     * Internal class to hold benchmark results with latency statistics.
+     */
+    private static class BenchmarkResult {
+        final String name;
+        final String description;
+        final Histogram histogram;
+        final int iterations;
+        final int warmupIterations;
+        final long totalResults;
+        final int errors;
+
+        BenchmarkResult(String name, String description, Histogram histogram, int iterations,
+                       int warmupIterations, long totalResults, int errors) {
+            this.name = name;
+            this.description = description;
+            this.histogram = histogram;
+            this.iterations = iterations;
+            this.warmupIterations = warmupIterations;
+            this.totalResults = totalResults;
+            this.errors = errors;
+        }
+
+        double getAvgLatencyMs() {
+            return histogram.getMean() / 1000.0;
+        }
+
+        double getMinLatencyMs() {
+            return histogram.getMinValue() / 1000.0;
+        }
+
+        double getMaxLatencyMs() {
+            return histogram.getMaxValue() / 1000.0;
+        }
+
+        double getP50LatencyMs() {
+            return histogram.getValueAtPercentile(50.0) / 1000.0;
+        }
+
+        double getP95LatencyMs() {
+            return histogram.getValueAtPercentile(95.0) / 1000.0;
+        }
+
+        double getP99LatencyMs() {
+            return histogram.getValueAtPercentile(99.0) / 1000.0;
+        }
+
+        double getThroughput() {
+            double totalTimeMs = histogram.getTotalCount() > 0 ?
+                (histogram.getMean() * histogram.getTotalCount()) / 1000.0 : 0;
+            return totalTimeMs > 0 ? (iterations * 1000.0) / totalTimeMs : 0;
+        }
+
+        double getAvgResults() {
+            return iterations > 0 ? (double) totalResults / iterations : 0;
+        }
     }
 }
