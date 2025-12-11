@@ -209,6 +209,78 @@ All 20 indexes were created successfully. The indexes support various query patt
 
 ---
 
+## Hybrid Search Capabilities
+
+The benchmark tool now includes a **Hybrid Search** implementation that combines multiple search strategies to address MongoDB API limitations:
+
+### Search Strategies
+
+| Strategy | Implementation | Status | Description |
+|----------|----------------|--------|-------------|
+| **Phonetic** | Oracle SOUNDEX | Working | Matches names that sound alike (Smith/Smyth, John/Jon) |
+| **Fuzzy** | Oracle Text CONTAINS | Requires Index | Typo-tolerant text search with configurable similarity |
+| **Vector** | Oracle AI Vector Search | Requires Setup | Semantic similarity search using embeddings |
+
+### Why Hybrid Search?
+
+The MongoDB API for Oracle supports only B-tree indexes. Advanced search features require SQL/JDBC:
+
+| Feature | MongoDB API | Hybrid (SQL/JDBC) |
+|---------|-------------|-------------------|
+| Text indexes ($text) | Not supported | Oracle Text CONTAINS with FUZZY |
+| Vector indexes ($vectorSearch) | Not supported | Oracle AI Vector Search |
+| SOUNDEX phonetic matching | Not supported | Oracle SOUNDEX function |
+| Fuzzy/typo-tolerant search | Not supported | Oracle Text fuzzy operators |
+
+### Hybrid Search Test Results
+
+Integration tests against live Oracle ADB demonstrate:
+
+```
+Phonetic search results (1 found):
+  HybridSearchResult{customerNumber='1000008534', matchedValue='NORRIS EDMOND ALTENWERTH',
+                     score=0.8, matchStrategies=[PHONETIC]}
+```
+
+### Enabling Fuzzy Text Search
+
+Create an Oracle Text index on the JSON DATA column:
+
+```sql
+CREATE INDEX idx_identity_data_text
+ON identity(DATA)
+INDEXTYPE IS CTXSYS.CONTEXT
+PARAMETERS ('SYNC (ON COMMIT)');
+```
+
+### Enabling Vector Search
+
+1. Add embedding column:
+```sql
+ALTER TABLE identity ADD (embedding VECTOR(384, FLOAT32));
+```
+
+2. Load ONNX embedding model (e.g., all-MiniLM-L6-v2)
+
+3. Populate embeddings:
+```sql
+UPDATE identity SET embedding = VECTOR_EMBEDDING(
+  all_minilm_l6_v2 USING json_value(DATA, '$.common.fullName') as data
+);
+```
+
+4. Create vector index:
+```sql
+CREATE VECTOR INDEX idx_identity_embedding
+ON identity(embedding)
+ORGANIZATION NEIGHBOR PARTITIONS
+WITH DISTANCE COSINE;
+```
+
+See `config/hybrid-search-config.yaml` for full configuration and query definitions.
+
+---
+
 ## Environment Details
 
 - **Database:** Oracle Autonomous JSON Database
@@ -216,6 +288,7 @@ All 20 indexes were created successfully. The indexes support various query patt
 - **Driver:** MongoDB Java Driver 5.2.1
 - **Connection:** MongoDB API for Oracle (ORDS)
 - **Region:** US-Ashburn-1
+- **Test Suite:** 130 tests (121 unit + 9 integration)
 
 ---
 

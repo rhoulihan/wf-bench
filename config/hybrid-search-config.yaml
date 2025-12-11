@@ -1,0 +1,357 @@
+# Hybrid Search Configuration for WF Benchmark Tool
+#
+# This configuration defines queries for the hybrid search approach:
+# - MongoDB API for exact/indexed queries (via connection string)
+# - SQL/JDBC for fuzzy text search (Oracle Text CONTAINS)
+# - SQL/JDBC for phonetic search (SOUNDEX)
+# - SQL/JDBC for vector similarity search (Oracle AI Vector Search)
+#
+# The hybrid approach addresses MongoDB API limitations:
+# - No text indexes ($text not supported)
+# - No vector indexes ($vectorSearch not supported)
+# - Only B-tree indexes available via MongoDB API
+
+connection:
+  # MongoDB connection string for Oracle ADB
+  connectionString: "mongodb://admin:PASSWORD@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloudapps.com:27017/[user]?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true"
+  database: "admin"
+  connectionPoolSize: 10
+
+  # JDBC connection for SQL-based searches (fuzzy, phonetic, vector)
+  jdbcUrl: "jdbc:oracle:thin:@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloudapps.com:1522/[service_name]?wallet_location=[wallet_path]"
+  jdbcUsername: "admin"
+  jdbcPassword: "PASSWORD"
+
+queryExecution:
+  iterations: 10
+  warmupIterations: 3
+  threads: 1
+  includeExplainPlan: true
+  targetLatencyMs: 200
+
+# =============================================================================
+# HYBRID SEARCH CONFIGURATION
+# =============================================================================
+
+hybridSearch:
+  enabled: true
+
+  # Fuzzy search settings (Oracle Text)
+  fuzzy:
+    enabled: true
+    minScore: 70        # Minimum Oracle Text SCORE threshold (0-100)
+
+  # Phonetic search settings (SOUNDEX)
+  phonetic:
+    enabled: true
+    expandNicknames: true  # Expand Bill->William, Peggy->Margaret, etc.
+
+  # Vector search settings (Oracle AI Vector Search)
+  vector:
+    enabled: true
+    minSimilarity: 0.7           # Minimum cosine similarity (0.0-1.0)
+    embeddingModel: "all-MiniLM-L6-v2"  # ONNX model loaded in database
+
+# =============================================================================
+# HYBRID SEARCH QUERY DEFINITIONS
+# =============================================================================
+# These queries use SQL/JDBC for features not available via MongoDB API
+
+hybridQueries:
+  # ---------------------------------------------------------------------------
+  # FUZZY NAME SEARCH (Oracle Text CONTAINS with FUZZY)
+  # ---------------------------------------------------------------------------
+
+  - name: "fuzzy_name_search"
+    description: "Fuzzy text search for customer names with typo tolerance"
+    type: "fuzzy"
+    collection: "identity"
+    searchField: "common.fullName"
+    parameters:
+      searchText:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "common.fullName"
+    targetLatencyMs: 100
+
+  - name: "fuzzy_business_search"
+    description: "Fuzzy text search for business names"
+    type: "fuzzy"
+    collection: "identity"
+    searchField: "business.businessName"
+    parameters:
+      searchText:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "business.businessName"
+    targetLatencyMs: 100
+
+  # ---------------------------------------------------------------------------
+  # PHONETIC NAME SEARCH (SOUNDEX)
+  # ---------------------------------------------------------------------------
+
+  - name: "phonetic_name_search"
+    description: "Phonetic search for names that sound alike"
+    type: "phonetic"
+    collection: "identity"
+    firstNameField: "individual.firstName"
+    lastNameField: "individual.lastName"
+    parameters:
+      firstName:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "individual.firstName"
+        correlationGroup: "identity_name"
+      lastName:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "individual.lastName"
+        correlationGroup: "identity_name"
+    targetLatencyMs: 100
+
+  - name: "phonetic_name_with_nicknames"
+    description: "Phonetic search with nickname expansion (Bill->William)"
+    type: "phonetic"
+    collection: "identity"
+    firstNameField: "individual.firstName"
+    lastNameField: "individual.lastName"
+    expandNicknames: true
+    parameters:
+      firstName:
+        type: "random_choice"
+        values: ["Bill", "Bob", "Dick", "Jack", "Jim", "Mike", "Tom", "Peggy", "Sally", "Kate", "Beth"]
+      lastName:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "individual.lastName"
+    targetLatencyMs: 150
+
+  # ---------------------------------------------------------------------------
+  # VECTOR SIMILARITY SEARCH (Oracle AI Vector Search)
+  # ---------------------------------------------------------------------------
+
+  - name: "vector_semantic_search"
+    description: "Semantic similarity search using natural language"
+    type: "vector"
+    collection: "identity"
+    parameters:
+      query:
+        type: "random_choice"
+        values:
+          - "customers in banking and financial services"
+          - "technology sector professionals"
+          - "healthcare industry workers"
+          - "retail and consumer business owners"
+          - "real estate and property managers"
+    targetLatencyMs: 200
+
+  - name: "vector_similar_customers"
+    description: "Find customers similar to a reference customer"
+    type: "vector_similar"
+    collection: "identity"
+    parameters:
+      customerNumber:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "_id.customerNumber"
+    targetLatencyMs: 200
+
+  # ---------------------------------------------------------------------------
+  # HYBRID COMBINED SEARCH
+  # ---------------------------------------------------------------------------
+
+  - name: "hybrid_name_search"
+    description: "Combined fuzzy + phonetic name search"
+    type: "hybrid"
+    collection: "identity"
+    strategies:
+      - fuzzy
+      - phonetic
+    firstNameField: "individual.firstName"
+    lastNameField: "individual.lastName"
+    parameters:
+      firstName:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "individual.firstName"
+        correlationGroup: "identity_name"
+      lastName:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "individual.lastName"
+        correlationGroup: "identity_name"
+    targetLatencyMs: 200
+
+  - name: "hybrid_business_search"
+    description: "Combined fuzzy + vector business search"
+    type: "hybrid"
+    collection: "identity"
+    strategies:
+      - fuzzy
+      - vector
+    searchField: "business.businessName"
+    parameters:
+      searchText:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "business.businessName"
+    targetLatencyMs: 250
+
+# =============================================================================
+# STANDARD MONGODB QUERIES (Exact/Indexed)
+# =============================================================================
+# These queries use the MongoDB API for exact match and indexed lookups
+
+queries:
+  # Primary key lookup
+  - name: "exact_pk_lookup"
+    description: "Exact primary key lookup via MongoDB"
+    collection: "identity"
+    type: "find"
+    filter:
+      _id.customerNumber: "${param:customerNumber}"
+      _id.customerCompanyNumber: 1
+    expectedResults: 1
+    parameters:
+      customerNumber:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "_id.customerNumber"
+    targetLatencyMs: 10
+
+  # Exact TIN lookup
+  - name: "exact_tin_lookup"
+    description: "Exact TIN lookup via MongoDB index"
+    collection: "identity"
+    type: "find"
+    filter:
+      common.taxIdentificationNumber: "${param:tin}"
+    expectedResults: 1
+    parameters:
+      tin:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "common.taxIdentificationNumber"
+    targetLatencyMs: 20
+
+  # Exact phone lookup
+  - name: "exact_phone_lookup"
+    description: "Exact phone number lookup via MongoDB index"
+    collection: "phone"
+    type: "find"
+    filter:
+      phoneKey.phoneNumber: "${param:phoneNumber}"
+    parameters:
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
+    targetLatencyMs: 20
+
+  # Exact email lookup
+  - name: "exact_email_lookup"
+    description: "Exact email lookup via MongoDB index"
+    collection: "identity"
+    type: "find"
+    filter:
+      emails.emailAddress: "${param:email}"
+    parameters:
+      email:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "emails.emailAddress"
+    targetLatencyMs: 30
+
+# =============================================================================
+# INDEXES
+# =============================================================================
+# B-tree indexes for MongoDB API exact lookups
+# Oracle Text and Vector indexes must be created via SQL
+
+indexes:
+  # MongoDB API indexes (B-tree only)
+  - collection: "identity"
+    name: "idx_identity_tin_full"
+    keys:
+      common.taxIdentificationNumber: 1
+
+  - collection: "identity"
+    name: "idx_identity_fullname"
+    keys:
+      common.fullName: 1
+
+  - collection: "identity"
+    name: "idx_identity_name_parts"
+    keys:
+      individual.lastName: 1
+      individual.firstName: 1
+
+  - collection: "identity"
+    name: "idx_identity_email"
+    keys:
+      emails.emailAddress: 1
+
+  - collection: "phone"
+    name: "idx_phone_number"
+    keys:
+      phoneKey.phoneNumber: 1
+
+# =============================================================================
+# SQL INDEX CREATION SCRIPTS
+# =============================================================================
+# These must be run via SQL to enable hybrid search features
+
+sqlIndexes:
+  # Oracle Text Index for fuzzy search on JSON DATA column
+  # Note: MongoDB API for Oracle stores JSON in column named DATA
+  oracleTextIndex: |
+    -- Create Oracle Text index for fuzzy name search on JSON DATA column
+    -- Run this via SQL*Plus or SQL Developer
+    -- This enables CONTAINS() queries with FUZZY operator
+
+    -- Option 1: Index the entire JSON document (enables full-text search)
+    CREATE INDEX idx_identity_data_text
+    ON identity(DATA)
+    INDEXTYPE IS CTXSYS.CONTEXT
+    PARAMETERS ('SYNC (ON COMMIT)');
+
+    -- Option 2: Create a JSON search index (Oracle 23ai recommended approach)
+    -- CREATE SEARCH INDEX idx_identity_json_search ON identity(DATA) FOR JSON;
+
+  # Vector Index for similarity search
+  vectorIndex: |
+    -- Create vector index for semantic similarity search
+    -- Requires embedding column to be populated first
+    CREATE VECTOR INDEX idx_identity_embedding
+    ON identity(embedding)
+    ORGANIZATION NEIGHBOR PARTITIONS
+    WITH DISTANCE COSINE;
+
+  # Embedding column
+  embeddingColumn: |
+    -- Add embedding column if not exists
+    ALTER TABLE identity ADD (
+      embedding VECTOR(384, FLOAT32)
+    );
+
+    -- Populate embeddings using ONNX model (requires model to be loaded)
+    UPDATE identity SET embedding = VECTOR_EMBEDDING(
+      all_minilm_l6_v2 USING json_value(DATA, '$.common.fullName') as data
+    );
+
+# =============================================================================
+# REPORTING
+# =============================================================================
+
+reporting:
+  outputFormats:
+    - console
+    - csv
+    - json
+  includeExplainPlan: true
+  includeIndexUsage: true
+  compareToTarget: true
+  targetLatencyMs: 200
+
+  # Compare hybrid vs exact search performance
+  compareSearchTypes: true

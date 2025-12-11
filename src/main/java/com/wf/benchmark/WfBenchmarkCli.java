@@ -1,6 +1,7 @@
 package com.wf.benchmark;
 
 import com.wf.benchmark.command.CleanCommand;
+import com.wf.benchmark.command.HybridSearchCommand;
 import com.wf.benchmark.command.LoadCommand;
 import com.wf.benchmark.command.QueryCommand;
 import picocli.CommandLine;
@@ -17,7 +18,8 @@ import java.util.concurrent.Callable;
     subcommands = {
         LoadCommand.class,
         QueryCommand.class,
-        CleanCommand.class
+        CleanCommand.class,
+        HybridSearchCommand.class
     }
 )
 public class WfBenchmarkCli implements Callable<Integer> {

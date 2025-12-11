@@ -7,6 +7,10 @@ A Java CLI tool for benchmarking the MongoDB API for Oracle Database. Load test 
 - **Data Loading** - Generate and load realistic test data with configurable volume and parallelism
 - **Query Benchmarking** - Run queries with warmup iterations and detailed latency metrics (p50/p95/p99)
 - **Index Management** - Create and manage indexes via YAML configuration
+- **Hybrid Search** - Advanced search capabilities via SQL/JDBC:
+  - **Phonetic Search** - SOUNDEX matching for names that sound alike
+  - **Fuzzy Search** - Oracle Text for typo-tolerant matching
+  - **Vector Search** - Semantic similarity using Oracle AI Vector Search
 - **Multiple Output Formats** - Console, CSV, and JSON output for integration with analysis tools
 - **Tunable Parameters** - Thread count, batch size, connection pool size, and more
 - **Parameterized Queries** - Support for multiple parameter generation strategies:
@@ -243,6 +247,40 @@ The tool generates four collections matching a customer information system:
 - Full and last-4 account number fields for different search patterns
 - Tokenized account number for security scenarios
 
+## Hybrid Search
+
+The MongoDB API for Oracle supports only B-tree indexes. For advanced search features, the tool provides hybrid search services that use SQL/JDBC:
+
+### Why Hybrid Search?
+
+| Feature | MongoDB API | Hybrid (SQL/JDBC) |
+|---------|-------------|-------------------|
+| Text indexes ($text) | Not supported | Oracle Text CONTAINS with FUZZY |
+| Vector indexes ($vectorSearch) | Not supported | Oracle AI Vector Search |
+| SOUNDEX phonetic matching | Not supported | Oracle SOUNDEX function |
+
+### Search Strategies
+
+| Strategy | Description | Status |
+|----------|-------------|--------|
+| **Phonetic** | SOUNDEX matching for similar-sounding names (Smith/Smyth, John/Jon) | Works immediately |
+| **Fuzzy** | Typo-tolerant matching using Oracle Text | Requires Oracle Text index |
+| **Vector** | Semantic similarity search | Requires ONNX model + embedding column |
+
+### Running Integration Tests
+
+```bash
+# Run all tests including hybrid search integration tests
+mvn test -Doracle.jdbc.url=enabled
+
+# With explicit credentials
+mvn test -Doracle.jdbc.url="jdbc:oracle:thin:@..." \
+         -Doracle.username="admin" \
+         -Doracle.password="..."
+```
+
+See `config/hybrid-search-config.yaml` for configuration and `results/BENCHMARK_SUMMARY.md` for setup instructions.
+
 ## Recent Benchmark Results
 
 **Environment:** Oracle Autonomous JSON Database (MongoDB API), LARGE scale (1M identity, 1M address, 2.5M phone, 1M account)
@@ -346,8 +384,13 @@ wf_bench/
     │   ├── loader/                # Data loading
     │   ├── query/                 # Query execution
     │   │   └── ParameterGenerator.java  # Parameter value generation
+    │   ├── search/                # Hybrid search services
+    │   │   ├── FuzzySearchService.java    # Oracle Text fuzzy search
+    │   │   ├── PhoneticSearchService.java # SOUNDEX phonetic matching
+    │   │   ├── VectorSearchService.java   # Oracle AI Vector Search
+    │   │   └── HybridSearchService.java   # Combined search strategies
     │   └── report/                # Output formatting
-    └── test/java/                 # Unit tests
+    └── test/java/                 # Unit tests (130 tests)
 ```
 
 ## Development

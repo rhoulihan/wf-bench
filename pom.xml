@@ -103,6 +103,27 @@
             <version>${assertj.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- HikariCP for high-performance connection pooling -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>5.1.0</version>
+        </dependency>
+
+        <!-- Oracle JDBC Driver for hybrid search (SQL-based features) -->
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <version>23.5.0.24.07</version>
+        </dependency>
+
+        <!-- Oracle security extensions for wallet-based authentication -->
+        <dependency>
+            <groupId>com.oracle.database.security</groupId>
+            <artifactId>oraclepki</artifactId>
+            <version>23.5.0.24.07</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -135,6 +156,12 @@
                 <version>3.2.2</version>
                 <configuration>
                     <argLine>--enable-preview</argLine>
+                    <!-- Pass system properties to forked JVM for integration tests -->
+                    <systemPropertyVariables>
+                        <oracle.jdbc.url>${oracle.jdbc.url}</oracle.jdbc.url>
+                        <oracle.username>${oracle.username}</oracle.username>
+                        <oracle.password>${oracle.password}</oracle.password>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
 
