@@ -16,6 +16,7 @@ A Java CLI tool for benchmarking the MongoDB API for Oracle Database. Load test 
   - `random_from_loaded` - Sample actual values from database collections (supports nested array fields)
   - `sequential` - Iterate through a range
   - `fixed` - Constant value
+- **Correlated Parameters** - Extract multiple parameter values from the same document using `correlationGroup`, ensuring realistic query patterns (e.g., DOB + name from same person)
 
 ## Requirements
 
@@ -194,6 +195,26 @@ queries:
         type: "random_from_loaded"
         collection: "address"
         field: "addresses.postalCode"  # Supports nested array fields
+
+  # Example using correlated parameters (values from same document)
+  - name: "find_by_dob_and_name"
+    description: "Search by DOB with name (correlated)"
+    collection: "bench_identity"
+    type: "find"
+    filter:
+      individual.birthDate: "${param:dob}"
+      common.fullName: "${param:fullName}"
+    parameters:
+      dob:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "individual.birthDate"
+        correlationGroup: "identity_dob_name"  # Same group
+      fullName:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "common.fullName"
+        correlationGroup: "identity_dob_name"  # Same group = same document
 ```
 
 ## Data Model
