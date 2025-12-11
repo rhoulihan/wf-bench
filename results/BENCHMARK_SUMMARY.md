@@ -30,43 +30,43 @@ Successfully executed 28 query benchmarks with correlated parameter support and 
 
 ### High Performance Queries (< 10ms avg)
 
-| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
-|-------|-------------|------------------------|----------|----------|------------|------|
-| uc4_account_ssn | Account + SSN (2-way join) | `db.account.find({accountKey.accountNumber: ?})` + join | 2.33 | 2.27 | 428.5/s | 1 |
-| os2_account_full_search | Full account number | `db.account.find({accountKey.accountNumber: ?})` | 2.25 | 2.15 | 445.0/s | 1 |
-| os3_account_tokenized_search | Tokenized account | `db.account.find({accountKey.accountNumberTokenized: ?})` | 2.26 | 2.15 | 443.4/s | 1 |
-| account_by_customer | Accounts for customer | `db.account.find({accountHolders.customerNumber: ?})` | 2.39 | 2.39 | 417.9/s | 2.7 |
-| os4_phone_full_search | Full phone number | `db.phone.find({phoneKey.phoneNumber: ?})` | 2.52 | 2.62 | 396.2/s | 1 |
-| wr_e_email_search | Email address (embedded) | `db.identity.find({emails.emailAddress: ?})` | 2.71 | 3.01 | 368.5/s | 1.2 |
-| wr_s_id_document_search | Driver's License/Passport | `db.identity.find({common.identifications.identificationNumber: ?})` | 2.67 | 2.42 | 375.2/s | 1 |
-| os1_tin_full_search | Full 9-digit TIN/SSN | `db.identity.find({common.taxIdentificationNumber: ?})` | 2.77 | 2.61 | 361.3/s | 1 |
-| wr_f_dob_with_name | DOB + name (correlated) | `db.identity.find({individual.birthDate: ?, common.fullName: ?})` | 3.35 | 3.47 | 298.4/s | 3.8 |
-| wr_c_zip_only | ZIP code only | `db.address.find({addresses.postalCode: ?})` | 4.79 | 4.80 | 208.6/s | 23.8 |
-| wr_q_tin_last4_with_name | TIN last 4 + name (correlated) | `db.identity.find({common.taxIdentificationNumberLast4: ?, common.fullName: ?})` | 5.17 | 5.50 | 193.3/s | 1 |
-| uc7_email_phone_account | Email + Phone + Account (3-way join) | `db.identity.find({emails.emailAddress: ?})` + joins | 5.75 | 9.37 | 174.0/s | 1.1 |
-| wr_h_full_name_search | First/Last name (correlated) | `db.identity.find({individual.lastName: ?, individual.firstName: ?})` | 6.18 | 12.56 | 161.9/s | 4.8 |
-| uc2_phone_ssn_account | Phone + SSN + Account (3-way join) | `db.phone.find({phoneKey.phoneNumber: ?})` + joins | 6.91 | 7.73 | 144.6/s | 1 |
-| account_last4_search | Account last 4 digits | `db.account.find({accountKey.accountNumberLast4: ?})` | 6.96 | 8.65 | 143.6/s | 100 |
-| uc1_phone_ssn_last4 | Phone + SSN last 4 (2-way join) | `db.phone.find({phoneKey.phoneNumber: ?})` + join | 7.87 | 8.85 | 127.0/s | 1 |
-| wr_g_entity_type_filter | Entity type filter | `db.identity.find({common.entityTypeIndicator: ?})` | 9.12 | 10.35 | 109.6/s | 100 |
+| Query | Description | MongoDB Commands | Avg (ms) | P95 (ms) | Throughput | Docs |
+|-------|-------------|------------------|----------|----------|------------|------|
+| uc4_account_ssn | Account + SSN (2-way join) | See UC-4 below | 2.33 | 2.27 | 428.5/s | 1 |
+| os2_account_full_search | Full account number | `db.account.find({"accountKey.accountNumber": "1234567890"})` | 2.25 | 2.15 | 445.0/s | 1 |
+| os3_account_tokenized_search | Tokenized account | `db.account.find({"accountKey.accountNumberTokenized": "abc123"})` | 2.26 | 2.15 | 443.4/s | 1 |
+| account_by_customer | Accounts for customer | `db.account.find({"accountHolders.customerNumber": 1000000001})` | 2.39 | 2.39 | 417.9/s | 2.7 |
+| os4_phone_full_search | Full phone number | `db.phone.find({"phoneKey.phoneNumber": "5551234567"})` | 2.52 | 2.62 | 396.2/s | 1 |
+| wr_e_email_search | Email address (embedded) | `db.identity.find({"emails.emailAddress": "user@example.com"})` | 2.71 | 3.01 | 368.5/s | 1.2 |
+| wr_s_id_document_search | Driver's License/Passport | `db.identity.find({"common.identifications.identificationNumber": "D12345"})` | 2.67 | 2.42 | 375.2/s | 1 |
+| os1_tin_full_search | Full 9-digit TIN/SSN | `db.identity.find({"common.taxIdentificationNumber": "123456789"})` | 2.77 | 2.61 | 361.3/s | 1 |
+| wr_f_dob_with_name | DOB + name (correlated) | `db.identity.find({"individual.birthDate": "1990-01-15", "common.fullName": "John Smith"})` | 3.35 | 3.47 | 298.4/s | 3.8 |
+| wr_c_zip_only | ZIP code only | `db.address.find({"addresses.postalCode": "90210"})` | 4.79 | 4.80 | 208.6/s | 23.8 |
+| wr_q_tin_last4_with_name | TIN last 4 + name (correlated) | `db.identity.find({"common.taxIdentificationNumberLast4": "6789", "common.fullName": "John Smith"})` | 5.17 | 5.50 | 193.3/s | 1 |
+| uc7_email_phone_account | Email + Phone + Account (3-way join) | See UC-7 below | 5.75 | 9.37 | 174.0/s | 1.1 |
+| wr_h_full_name_search | First/Last name (correlated) | `db.identity.find({"individual.lastName": "Smith", "individual.firstName": "John"})` | 6.18 | 12.56 | 161.9/s | 4.8 |
+| uc2_phone_ssn_account | Phone + SSN + Account (3-way join) | See UC-2 below | 6.91 | 7.73 | 144.6/s | 1 |
+| account_last4_search | Account last 4 digits | `db.account.find({"accountKey.accountNumberLast4": "7890"})` | 6.96 | 8.65 | 143.6/s | 100 |
+| uc1_phone_ssn_last4 | Phone + SSN last 4 (2-way join) | See UC-1 below | 7.87 | 8.85 | 127.0/s | 1 |
+| wr_g_entity_type_filter | Entity type filter | `db.identity.find({"common.entityTypeIndicator": "I"})` | 9.12 | 10.35 | 109.6/s | 100 |
 
 ### Medium Performance Queries (10-50ms avg)
 
-| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
-|-------|-------------|------------------------|----------|----------|------------|------|
-| uc6_email_account_last4 | Email + Account last 4 (2-way join) | `db.identity.find({emails.emailAddress: ?})` + join | 12.21 | 27.65 | 81.9/s | 1.1 |
-| **fuzzy_name_search** | **Fuzzy text search** | `SELECT ... WHERE CONTAINS(DATA, 'fuzzy(term)', 1) > 0` | **4.47** | **9.11** | **223.9/s** | 1.2 |
-| **fuzzy_business_search** | **Fuzzy business name** | `SELECT ... WHERE CONTAINS(DATA, 'fuzzy(term)', 1) > 0` | **6.04** | **9.28** | **165.5/s** | 0.4 |
-| **phonetic_name_search** | **Phonetic (SOUNDEX)** | `SELECT ... WHERE SOUNDEX(firstName) = SOUNDEX(?) AND SOUNDEX(lastName) = SOUNDEX(?)` | **7.44** | **7.71** | **134.4/s** | 1.2 |
-| **hybrid_name_search** | **Combined phonetic + fuzzy** | SOUNDEX + CONTAINS/FUZZY | **12.28** | **13.45** | **81.5/s** | 1.4 |
+| Query | Description | MongoDB Commands | Avg (ms) | P95 (ms) | Throughput | Docs |
+|-------|-------------|------------------|----------|----------|------------|------|
+| uc6_email_account_last4 | Email + Account last 4 (2-way join) | See UC-6 below | 12.21 | 27.65 | 81.9/s | 1.1 |
+| **fuzzy_name_search** | **Fuzzy text search** | `SELECT ... WHERE JSON_TEXTCONTAINS(DATA, '$.common.fullName', 'fuzzy(Smith)')` | **4.47** | **9.11** | **223.9/s** | 1.2 |
+| **fuzzy_business_search** | **Fuzzy business name** | `SELECT ... WHERE JSON_TEXTCONTAINS(DATA, '$.business.businessName', 'fuzzy(Acme)')` | **6.04** | **9.28** | **165.5/s** | 0.4 |
+| **phonetic_name_search** | **Phonetic (SOUNDEX)** | `SELECT ... WHERE SOUNDEX(firstName) = SOUNDEX('Jon') AND SOUNDEX(lastName) = SOUNDEX('Smyth')` | **7.44** | **7.71** | **134.4/s** | 1.2 |
+| **hybrid_name_search** | **Combined phonetic + fuzzy** | SOUNDEX + JSON_TEXTCONTAINS combined | **12.28** | **13.45** | **81.5/s** | 1.4 |
 
 ### Address & Multi-Collection Join Queries (Higher Latency)
 
-| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
-|-------|-------------|------------------------|----------|----------|------------|------|
-| wr_b_address_with_name | State/ZIP (correlated) | `db.address.find({addresses.stateCode: ?, addresses.postalCode: ?})` | 222.88 | 594.43 | 4.5/s | 2.6 |
-| uc5_address_ssn_account | Address + SSN + Account (3-way join) | `db.address.find({state: ?, city: ?})` + joins | 246.80 | 612.35 | 4.1/s | 3.8 |
-| uc3_phone_account | Phone + Account (3-way join) | `db.phone.find({phoneKey.phoneNumber: ?})` + joins | 453.66 | 507.90 | 2.2/s | 1 |
+| Query | Description | MongoDB Commands | Avg (ms) | P95 (ms) | Throughput | Docs |
+|-------|-------------|------------------|----------|----------|------------|------|
+| wr_b_address_with_name | State/ZIP (correlated) | `db.address.find({"addresses.stateCode": "CA", "addresses.postalCode": "90210"})` | 222.88 | 594.43 | 4.5/s | 2.6 |
+| uc5_address_ssn_account | Address + SSN + Account (3-way join) | See UC-5 below | 246.80 | 612.35 | 4.1/s | 3.8 |
+| uc3_phone_account | Phone + Account (3-way join) | See UC-3 below | 453.66 | 507.90 | 2.2/s | 1 |
 
 ### Aggregation Queries (Full Collection Scans)
 
@@ -210,6 +210,74 @@ The join execution logic is implemented in `QueryRunner.java`:
    - Query the target collection
 3. **Chained Joins**: If `nextJoin` is defined, recursively process
 4. **Result Filtering**: Only source documents where the entire join chain matches are counted
+
+### MongoDB Commands Executed
+
+Each UC query executes multiple MongoDB find() operations. Here are the actual commands:
+
+**UC-1: Phone + SSN Last 4 (2-way join)**
+```javascript
+// Step 1: Find phone record
+db.phone.find({"phoneKey.phoneNumber": "5551234567"})
+// Step 2: Join to identity using customerNumber from phone doc
+db.identity.find({"_id.customerNumber": 1000000001, "common.taxIdentificationNumberLast4": "6789"})
+```
+
+**UC-2: Phone + SSN Last 4 + Account Last 4 (3-way join)**
+```javascript
+// Step 1: Find phone record
+db.phone.find({"phoneKey.phoneNumber": "5551234567"})
+// Step 2: Join to identity
+db.identity.find({"_id.customerNumber": 1000000001, "common.taxIdentificationNumberLast4": "6789"})
+// Step 3: Join to account
+db.account.find({"accountHolders.customerNumber": 1000000001, "accountKey.accountNumberLast4": "4321"})
+```
+
+**UC-3: Phone + Account Last 4 (3-way join)**
+```javascript
+// Step 1: Find phone record
+db.phone.find({"phoneKey.phoneNumber": "5551234567"})
+// Step 2: Join to identity (no additional filter)
+db.identity.find({"_id.customerNumber": 1000000001})
+// Step 3: Join to account
+db.account.find({"accountHolders.customerNumber": 1000000001, "accountKey.accountNumberLast4": "4321"})
+```
+
+**UC-4: Account + SSN Last 4 (2-way join)**
+```javascript
+// Step 1: Find account record
+db.account.find({"accountKey.accountNumber": "1234567890"})
+// Step 2: Join to identity using customerNumber from accountHolders array
+db.identity.find({"_id.customerNumber": 1000000001, "common.taxIdentificationNumberLast4": "6789"})
+```
+
+**UC-5: Address + SSN Last 4 + Account Last 4 (3-way join)**
+```javascript
+// Step 1: Find address record
+db.address.find({"addresses.stateCode": "CA", "addresses.cityName": "Los Angeles", "addresses.postalCode": "90210"})
+// Step 2: Join to identity
+db.identity.find({"_id.customerNumber": 1000000001, "common.taxIdentificationNumberLast4": "6789"})
+// Step 3: Join to account
+db.account.find({"accountHolders.customerNumber": 1000000001, "accountKey.accountNumberLast4": "4321"})
+```
+
+**UC-6: Email + Account Last 4 (2-way join)**
+```javascript
+// Step 1: Find identity by email
+db.identity.find({"emails.emailAddress": "user@example.com"})
+// Step 2: Join to account
+db.account.find({"accountHolders.customerNumber": 1000000001, "accountKey.accountNumberLast4": "4321"})
+```
+
+**UC-7: Email + Phone + Account Last 4 (3-way join)**
+```javascript
+// Step 1: Find identity by email
+db.identity.find({"emails.emailAddress": "user@example.com"})
+// Step 2: Join to phone
+db.phone.find({"phoneKey.customerNumber": 1000000001, "phoneKey.phoneNumber": "5551234567"})
+// Step 3: Join to account
+db.account.find({"accountHolders.customerNumber": 1000000001, "accountKey.accountNumberLast4": "4321"})
+```
 
 ### Test Coverage
 
