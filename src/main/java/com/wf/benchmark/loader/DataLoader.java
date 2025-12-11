@@ -52,6 +52,8 @@ public class DataLoader {
         // Create generators
         RandomDataProvider randomProvider = new RandomDataProvider();
 
+        long identityCount = config.getEffectiveIdentityCount();
+
         IdentityGenerator identityGen = new IdentityGenerator(
             randomProvider, config.getIndividualRatio(), config.getCollectionPrefix());
 
@@ -64,13 +66,17 @@ public class DataLoader {
         PhoneGenerator phoneGen = new PhoneGenerator(
             randomProvider, config.getPhoneRatio(), config.getCollectionPrefix());
 
+        AccountGenerator accountGen = new AccountGenerator(
+            randomProvider, config.getAccountRatio(),
+            config.getCollectionPrefix(), identityCount);
+
         // Load each collection
-        long identityCount = config.getEffectiveIdentityCount();
         long addressCount = config.getAddressCount();
         long phoneCount = config.getPhoneCount();
+        long accountCount = config.getAccountCount();
 
-        log.info("Starting data load - Identity: {}, Address: {}, Phone: {}",
-            identityCount, addressCount, phoneCount);
+        log.info("Starting data load - Identity: {}, Address: {}, Phone: {}, Account: {}",
+            identityCount, addressCount, phoneCount, accountCount);
 
         LoadMetrics identityMetrics = loadCollection(database, identityGen, identityCount);
         allMetrics.add(identityMetrics);
@@ -81,6 +87,9 @@ public class DataLoader {
         LoadMetrics phoneMetrics = loadCollection(database, phoneGen, phoneCount);
         allMetrics.add(phoneMetrics);
 
+        LoadMetrics accountMetrics = loadCollection(database, accountGen, accountCount);
+        allMetrics.add(accountMetrics);
+
         return allMetrics;
     }
 
@@ -89,7 +98,8 @@ public class DataLoader {
         List<String> collections = List.of(
             prefix + "identity",
             prefix + "address",
-            prefix + "phone"
+            prefix + "phone",
+            prefix + "account"
         );
 
         for (String collName : collections) {

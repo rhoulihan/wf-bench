@@ -8,10 +8,20 @@ import java.util.List;
 
 /**
  * Generates identity documents matching the sample schema.
+ * Includes embedded emails array for efficient email lookups.
  */
 public class IdentityGenerator implements DataGenerator {
 
     private static final long BASE_CUSTOMER_NUMBER = 1_000_000_001L;
+
+    private static final List<String> EMAIL_DOMAINS = List.of(
+        "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com",
+        "icloud.com", "protonmail.com", "company.com", "work.org", "business.net"
+    );
+
+    private static final List<String> EMAIL_TYPE_CODES = List.of(
+        "PRIMARY", "SECONDARY", "WORK"
+    );
 
     private final RandomDataProvider random;
     private final double individualRatio;
@@ -52,6 +62,11 @@ public class IdentityGenerator implements DataGenerator {
             doc.append("nonIndividual", generateNonIndividual());
         }
 
+        // emails array (embedded) - 90% of identities have emails
+        if (random.randomBoolean(0.9)) {
+            doc.append("emails", generateEmails(common.getString("fullName")));
+        }
+
         // metaData
         doc.append("metaData", generateMetaData(customerNumber, isIndividual));
 
@@ -85,6 +100,8 @@ public class IdentityGenerator implements DataGenerator {
         common.append("entityTypeIndicator", isIndividual ? "INDIVIDUAL" : "NON_INDIVIDUAL");
         common.append("taxIdentificationTypeCode", taxIdType);
         common.append("taxIdentificationNumber", taxIdNumber);
+        // Add last 4 digits for partial search queries (UC-1, UC-2, UC-4, UC-5, WR-Q)
+        common.append("taxIdentificationNumberLast4", taxIdNumber.substring(taxIdNumber.length() - 4));
 
         // identifications array (for individuals)
         if (isIndividual && random.randomBoolean(0.8)) {
@@ -239,6 +256,74 @@ public class IdentityGenerator implements DataGenerator {
         }
 
         return metaData;
+    }
+
+    /**
+     * Generate embedded emails array.
+     * Distribution: 50% have 1 email, 35% have 2, 15% have 3
+     */
+    private List<Document> generateEmails(String fullName) {
+        List<Document> emails = new ArrayList<>();
+
+        // Determine email count based on distribution
+        double rand = random.randomDouble();
+        int emailCount;
+        if (rand < 0.50) {
+            emailCount = 1;
+        } else if (rand < 0.85) {
+            emailCount = 2;
+        } else {
+            emailCount = 3;
+        }
+
+        for (int i = 0; i < emailCount; i++) {
+            String emailAddress = generateEmailAddress(fullName, i);
+            String emailTypeCode = i == 0 ? "PRIMARY" : (i == 1 ? "SECONDARY" : "WORK");
+            boolean isPrimary = (i == 0);
+            boolean isVerified = isPrimary || random.randomBoolean(0.7);
+            Date verificationDate = isVerified ? random.recentTimestamp() : null;
+            Date createdTs = random.timestamp();
+            Date updatedTs = random.recentTimestamp();
+
+            Document email = new Document()
+                .append("emailAddress", emailAddress)
+                .append("emailTypeCode", emailTypeCode)
+                .append("isPrimary", isPrimary)
+                .append("verificationStatus", isVerified ? "VERIFIED" : "PENDING")
+                .append("lastVerificationDate", verificationDate != null ? random.dateString(verificationDate) : null)
+                .append("metaData", new Document()
+                    .append("createdByProcessName", "24201 - IL")
+                    .append("createdByIdentifier", "VT_IL")
+                    .append("createdTimestamp", createdTs)
+                    .append("updatedByProcessName", "24201 - CDC")
+                    .append("updatedByIdentifier", "VT_CDC")
+                    .append("updatedTimestamp", updatedTs)
+                    .append("cdcDeletedFlag", "N"));
+
+            emails.add(email);
+        }
+
+        return emails;
+    }
+
+    /**
+     * Generate a realistic email address based on name.
+     */
+    private String generateEmailAddress(String fullName, int index) {
+        String[] parts = fullName.toLowerCase().replace("*", "").split("\\s+");
+        String firstName = parts.length > 0 ? parts[0] : "user";
+        String lastName = parts.length > 1 ? parts[parts.length - 1] : "name";
+
+        String domain = random.randomChoice(EMAIL_DOMAINS);
+        int randomNum = random.randomInt(1, 9999);
+
+        // Different email formats
+        return switch (index % 4) {
+            case 0 -> firstName + "." + lastName + "@" + domain;
+            case 1 -> firstName + lastName + randomNum + "@" + domain;
+            case 2 -> firstName.charAt(0) + lastName + "@" + domain;
+            default -> lastName + "." + firstName + randomNum + "@" + domain;
+        };
     }
 
     private String generateFutureDate(int minYears, int maxYears) {

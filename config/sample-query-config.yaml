@@ -1,10 +1,22 @@
-# Sample Query Configuration for WF Benchmark Tool
-# Copy this file and modify as needed
+# Query Configuration for WF Benchmark Tool
+# Based on Wells Fargo Vector Search Solution Requirements
+#
+# Performance Target: < 200ms response time
+#
+# Use Cases from Requirements Document:
+# UC-1: Phone + Last 4 SSN
+# UC-2: Phone + Last 4 SSN + Last 4 Account
+# UC-3: Phone + Last 4 Account
+# UC-4: Last 4 SSN + Last 4 Account
+# UC-5: Address + Last 4 SSN + Last 4 Account
+# UC-6: Email + Last 4 Account
+# UC-7: Email + Phone + Last 4 Account
 
 connection:
   # MongoDB connection string for Oracle MongoDB API
-  connectionString: "mongodb://admin:OracleJson1!@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloudapps.com:27017/admin?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true"
-  database: "benchmark"
+  # Use [user] as database in path for Oracle ADB
+  connectionString: "mongodb://admin:PASSWORD@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloudapps.com:27017/[user]?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true"
+  database: "admin"
   connectionPoolSize: 10
 
 queryExecution:
@@ -12,16 +24,37 @@ queryExecution:
   warmupIterations: 3      # Warmup iterations (not measured)
   threads: 1               # Concurrent query threads
   includeExplainPlan: true # Capture explain plan
+  targetLatencyMs: 200     # Target from requirements
 
-# Index definitions - created before running queries
+# =============================================================================
+# INDEX DEFINITIONS
+# =============================================================================
+# Indexes are created before running queries to ensure optimal performance
+
 indexes:
+  # ---------------------------------------------------------------------------
+  # Identity Collection Indexes
+  # ---------------------------------------------------------------------------
+
+  # Primary key lookup (built-in _id index handles this)
+
+  # Full TIN search - OS-1
   - collection: "identity"
-    name: "idx_identity_taxid"
+    name: "idx_identity_tin_full"
     keys:
       common.taxIdentificationNumber: 1
     options:
       background: true
 
+  # Last 4 TIN search - UC-1, UC-2, UC-4, UC-5, WR-Q
+  - collection: "identity"
+    name: "idx_identity_tin_last4"
+    keys:
+      common.taxIdentificationNumberLast4: 1
+    options:
+      background: true
+
+  # Full name search - WR-H
   - collection: "identity"
     name: "idx_identity_fullname"
     keys:
@@ -29,6 +62,16 @@ indexes:
     options:
       background: true
 
+  # Name parts for structured search - WR-H
+  - collection: "identity"
+    name: "idx_identity_name_parts"
+    keys:
+      individual.lastName: 1
+      individual.firstName: 1
+    options:
+      background: true
+
+  # Entity type filter - WR-G
   - collection: "identity"
     name: "idx_identity_entity_type"
     keys:
@@ -36,105 +79,529 @@ indexes:
     options:
       background: true
 
+  # DOB search - WR-F
+  - collection: "identity"
+    name: "idx_identity_dob"
+    keys:
+      individual.birthDate: 1
+    options:
+      background: true
+
+  # ID documents (DL, Passport) - WR-S
+  - collection: "identity"
+    name: "idx_identity_id_docs"
+    keys:
+      common.identifications.documentNumber: 1
+    options:
+      background: true
+
+  # ECN lookup - WR-K
+  - collection: "identity"
+    name: "idx_identity_ecn"
+    keys:
+      common.ecn: 1
+    options:
+      background: true
+      sparse: true
+
+  # ---------------------------------------------------------------------------
+  # Address Collection Indexes
+  # ---------------------------------------------------------------------------
+
+  # City/State/ZIP search - UC-5, WR-B
   - collection: "address"
-    name: "idx_address_state_city"
+    name: "idx_address_city_state_zip"
     keys:
       addresses.stateCode: 1
       addresses.cityName: 1
+      addresses.postalCode: 1
+    options:
+      background: true
 
+  # ZIP only search - WR-C
   - collection: "address"
-    name: "idx_address_postal"
+    name: "idx_address_zip"
     keys:
       addresses.postalCode: 1
+    options:
+      background: true
 
+  # Customer lookup
+  - collection: "address"
+    name: "idx_address_customer"
+    keys:
+      _id.customerNumber: 1
+      _id.customerCompanyNumber: 1
+
+  # ---------------------------------------------------------------------------
+  # Phone Collection Indexes
+  # ---------------------------------------------------------------------------
+
+  # Full phone number search - OS-4, UC-1, UC-2, UC-3, UC-7
+  - collection: "phone"
+    name: "idx_phone_number"
+    keys:
+      phoneKey.phoneNumber: 1
+    options:
+      background: true
+
+  # Customer lookup for joins
   - collection: "phone"
     name: "idx_phone_customer"
     keys:
       phoneKey.customerNumber: 1
       phoneKey.customerCompanyNumber: 1
+    options:
+      background: true
 
+  # Phone type filter
   - collection: "phone"
     name: "idx_phone_type"
     keys:
       phoneKey.phoneNumberTypeCode: 1
+    options:
+      background: true
 
-# Query definitions
+  # ---------------------------------------------------------------------------
+  # Email Indexes (EMBEDDED IN IDENTITY - Multikey)
+  # ---------------------------------------------------------------------------
+
+  # Email exact match - UC-6, UC-7, WR-E
+  # Multikey index on embedded emails array
+  - collection: "identity"
+    name: "idx_identity_email"
+    keys:
+      emails.emailAddress: 1
+    options:
+      background: true
+
+  # ---------------------------------------------------------------------------
+  # Account Collection Indexes (NEW - Multiple Holders per Account)
+  # ---------------------------------------------------------------------------
+
+  # Account last 4 search - UC-2, UC-3, UC-4, UC-5, UC-6, UC-7
+  - collection: "account"
+    name: "idx_account_last4"
+    keys:
+      accountKey.accountNumberLast4: 1
+    options:
+      background: true
+
+  # Full account number - OS-2
+  - collection: "account"
+    name: "idx_account_full"
+    keys:
+      accountKey.accountNumber: 1
+    options:
+      background: true
+
+  # Tokenized account - OS-3
+  - collection: "account"
+    name: "idx_account_tokenized"
+    keys:
+      accountKey.accountNumberTokenized: 1
+    options:
+      background: true
+      sparse: true
+
+  # Account holders lookup - Multikey index for multiple identities per account
+  - collection: "account"
+    name: "idx_account_holders"
+    keys:
+      accountHolders.customerNumber: 1
+      accountHolders.customerCompanyNumber: 1
+    options:
+      background: true
+
+  # Product type and COID filter - OS-2
+  - collection: "account"
+    name: "idx_account_product_coid"
+    keys:
+      productTypeCode: 1
+      companyOfInterestId: 1
+    options:
+      background: true
+
+# =============================================================================
+# QUERY DEFINITIONS
+# =============================================================================
+
 queries:
-  # Primary key lookup - should be fast with _id index
-  - name: "find_by_customer_number"
-    description: "Find identity by primary key"
-    collection: "identity"
-    type: "find"
-    filter:
-      _id.customerNumber: "${param:customerNumber}"
-      _id.customerCompanyNumber: 1
-    parameters:
-      customerNumber:
-        type: "random_range"
-        min: 1000000001
-        max: 1000100000
-    expectedResults: 1
+  # ---------------------------------------------------------------------------
+  # PRIMARY USE CASE QUERIES (Demo Required)
+  # ---------------------------------------------------------------------------
 
-  # Secondary index lookup
-  - name: "find_by_taxid"
-    description: "Find customer by tax ID (indexed)"
-    collection: "identity"
+  # UC-1: Phone + Last 4 SSN (Two-step join)
+  - name: "uc1_phone_ssn_last4"
+    description: "UC-1: Search by Phone Number and Last 4 of SSN"
+    collection: "phone"
     type: "find"
     filter:
-      common.taxIdentificationNumber: "${param:taxId}"
+      phoneKey.phoneNumber: "${param:phoneNumber}"
+    join:
+      collection: "identity"
+      localField: "phoneKey.customerNumber"
+      foreignField: "_id.customerNumber"
+      filter:
+        common.taxIdentificationNumberLast4: "${param:ssnLast4}"
     parameters:
-      taxId:
-        type: "random_range"
-        min: 100000000
-        max: 999999999
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
+      ssnLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 100
 
-  # Entity type filter
-  - name: "find_business_customers"
-    description: "Find non-individual customers"
+  # UC-4: Last 4 SSN + Account (Simplified - Identity only for now)
+  - name: "uc4_ssn_last4_search"
+    description: "UC-4: Search by SSN Last 4 digits"
     collection: "identity"
     type: "find"
     filter:
-      common.entityTypeIndicator: "NON_INDIVIDUAL"
+      common.taxIdentificationNumberLast4: "${param:ssnLast4}"
     limit: 100
+    parameters:
+      ssnLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 50
 
-  # Address by state lookup
-  - name: "find_addresses_by_state"
-    description: "Find addresses in a specific state"
+  # UC-5: Address search component
+  - name: "uc5_address_search"
+    description: "UC-5: Search by City/State/ZIP"
     collection: "address"
     type: "find"
     filter:
       addresses.stateCode: "${param:state}"
+      addresses.cityName: "${param:city}"
     limit: 100
     parameters:
       state:
         type: "random_choice"
-        values: ["CA", "TX", "NY", "FL", "IL", "PA", "OH", "GA"]
+        values: ["CA", "TX", "NY", "FL", "IL", "PA", "OH", "GA", "NC", "MI"]
+      city:
+        type: "random_choice"
+        values: ["Dallas", "Houston", "Austin", "San Francisco", "Los Angeles", "Chicago", "Miami", "Atlanta", "Phoenix", "Denver"]
+    targetLatencyMs: 50
 
-  # Phone lookup by customer
-  - name: "find_phones_for_customer"
-    description: "Find all phone numbers for a customer"
+  # ---------------------------------------------------------------------------
+  # OTHER REQUIRED SEARCHES
+  # ---------------------------------------------------------------------------
+
+  # OS-1: Full TIN Search
+  - name: "os1_tin_full_search"
+    description: "OS-1: Search by full 9-digit TIN/SSN"
+    collection: "identity"
+    type: "find"
+    filter:
+      common.taxIdentificationNumber: "${param:tin}"
+    expectedResults: 1
+    parameters:
+      tin:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "common.taxIdentificationNumber"
+    targetLatencyMs: 20
+
+  # OS-4: Full Phone Search
+  - name: "os4_phone_full_search"
+    description: "OS-4: Search by full 10-digit phone number"
     collection: "phone"
     type: "find"
     filter:
-      phoneKey.customerNumber: "${param:customerNumber}"
+      phoneKey.phoneNumber: "${param:phoneNumber}"
+    parameters:
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
+    targetLatencyMs: 20
+
+  # ---------------------------------------------------------------------------
+  # WRITTEN RESPONSE CAPABILITY QUERIES
+  # ---------------------------------------------------------------------------
+
+  # WR-B: City + State + ZIP with identifier
+  - name: "wr_b_address_with_name"
+    description: "WR-B: Search by City/State/ZIP with name"
+    collection: "address"
+    type: "aggregate"
+    pipeline:
+      - $match:
+          addresses.stateCode: "${param:state}"
+          addresses.postalCode: "${param:zip}"
+      - $lookup:
+          from: "identity"
+          localField: "_id.customerNumber"
+          foreignField: "_id.customerNumber"
+          as: "customer"
+      - $unwind: "$customer"
+      - $match:
+          customer.common.fullName:
+            $regex: "${param:name}"
+            $options: "i"
+      - $limit: 10
+    parameters:
+      state:
+        type: "random_choice"
+        values: ["TX", "CA", "NY", "FL"]
+      zip:
+        type: "random_pattern"
+        pattern: "\\d{5}"
+      name:
+        type: "random_choice"
+        values: ["SMITH", "JOHNSON", "WILLIAMS", "BROWN", "JONES"]
+    targetLatencyMs: 150
+
+  # WR-C: ZIP only with identifier
+  - name: "wr_c_zip_only"
+    description: "WR-C: Search by ZIP code only"
+    collection: "address"
+    type: "find"
+    filter:
+      addresses.postalCode: "${param:zip}"
+    limit: 100
+    parameters:
+      zip:
+        type: "random_from_loaded"
+        collection: "address"
+        field: "addresses.postalCode"
+    targetLatencyMs: 30
+
+  # WR-F: DOB with name
+  - name: "wr_f_dob_with_name"
+    description: "WR-F: Search by DOB with name identifier"
+    collection: "identity"
+    type: "find"
+    filter:
+      individual.birthDate: "${param:dob}"
+      common.fullName:
+        $regex: "${param:name}"
+        $options: "i"
+    limit: 10
+    parameters:
+      dob:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "individual.birthDate"
+      name:
+        type: "random_choice"
+        values: ["SMITH", "JOHNSON", "WILLIAMS", "BROWN"]
+    targetLatencyMs: 50
+
+  # WR-G: Entity Type Filter
+  - name: "wr_g_entity_type_filter"
+    description: "WR-G: Filter by Individual or Non-Individual"
+    collection: "identity"
+    type: "find"
+    filter:
+      common.entityTypeIndicator: "${param:entityType}"
+    limit: 100
+    parameters:
+      entityType:
+        type: "random_choice"
+        values: ["INDIVIDUAL", "NON_INDIVIDUAL"]
+    targetLatencyMs: 30
+
+  # WR-H: Full Name Search
+  - name: "wr_h_full_name_search"
+    description: "WR-H: Search by first, middle, and last name"
+    collection: "identity"
+    type: "find"
+    filter:
+      individual.lastName: "${param:lastName}"
+      individual.firstName: "${param:firstName}"
+    limit: 10
+    parameters:
+      lastName:
+        type: "random_choice"
+        values: ["SMITH", "JOHNSON", "WILLIAMS", "BROWN", "JONES", "GARCIA", "MILLER", "DAVIS"]
+      firstName:
+        type: "random_choice"
+        values: ["JOHN", "MICHAEL", "DAVID", "JAMES", "ROBERT", "MARY", "PATRICIA", "JENNIFER"]
+    targetLatencyMs: 30
+
+  # WR-Q: TIN Last 4 with Name
+  - name: "wr_q_tin_last4_with_name"
+    description: "WR-Q: Search by TIN last 4 with name"
+    collection: "identity"
+    type: "find"
+    filter:
+      common.taxIdentificationNumberLast4: "${param:tinLast4}"
+      common.fullName:
+        $regex: "${param:name}"
+        $options: "i"
+    limit: 10
+    parameters:
+      tinLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+      name:
+        type: "random_choice"
+        values: ["SMITH", "JOHNSON", "DOE"]
+    targetLatencyMs: 50
+
+  # WR-S: ID Document Search
+  - name: "wr_s_id_document_search"
+    description: "WR-S: Search by Driver's License or Passport"
+    collection: "identity"
+    type: "find"
+    filter:
+      common.identifications.documentNumber: "${param:documentNumber}"
+    expectedResults: 1
+    parameters:
+      documentNumber:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "common.identifications.documentNumber"
+    targetLatencyMs: 30
+
+  # WR-E: Email Exact Match (embedded in identity)
+  - name: "wr_e_email_search"
+    description: "WR-E: Search by email address (embedded)"
+    collection: "identity"
+    type: "find"
+    filter:
+      emails.emailAddress: "${param:email}"
+    limit: 10
+    parameters:
+      email:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "emails.emailAddress"
+    targetLatencyMs: 30
+
+  # ---------------------------------------------------------------------------
+  # ACCOUNT QUERIES (NEW - Multiple Holders per Account)
+  # ---------------------------------------------------------------------------
+
+  # UC-6: Email + Last 4 Account (Two-step: identity email -> account)
+  - name: "uc6_email_account_last4"
+    description: "UC-6: Search by Email and Account Last 4"
+    collection: "identity"
+    type: "find"
+    filter:
+      emails.emailAddress: "${param:email}"
+    join:
+      collection: "account"
+      localField: "_id.customerNumber"
+      foreignField: "accountHolders.customerNumber"
+      filter:
+        accountKey.accountNumberLast4: "${param:accountLast4}"
+    parameters:
+      email:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "emails.emailAddress"
+      accountLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 100
+
+  # UC-7: Email + Phone + Last 4 Account (Three-way intersection)
+  - name: "uc7_email_phone_account"
+    description: "UC-7: Search by Email, Phone, and Account Last 4"
+    collection: "identity"
+    type: "aggregate"
+    pipeline:
+      - $match:
+          emails.emailAddress: "${param:email}"
+      - $lookup:
+          from: "phone"
+          localField: "_id.customerNumber"
+          foreignField: "phoneKey.customerNumber"
+          as: "phones"
+      - $match:
+          phones.phoneKey.phoneNumber: "${param:phoneNumber}"
+      - $lookup:
+          from: "account"
+          localField: "_id.customerNumber"
+          foreignField: "accountHolders.customerNumber"
+          as: "accounts"
+      - $match:
+          accounts.accountKey.accountNumberLast4: "${param:accountLast4}"
+      - $limit: 10
+    parameters:
+      email:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "emails.emailAddress"
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
+      accountLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 150
+
+  # OS-2: Full Account Number Search
+  - name: "os2_account_full_search"
+    description: "OS-2: Search by full account number"
+    collection: "account"
+    type: "find"
+    filter:
+      accountKey.accountNumber: "${param:accountNumber}"
+    expectedResults: 1
+    parameters:
+      accountNumber:
+        type: "random_from_loaded"
+        collection: "account"
+        field: "accountKey.accountNumber"
+    targetLatencyMs: 20
+
+  # OS-3: Tokenized Account Search
+  - name: "os3_account_tokenized_search"
+    description: "OS-3: Search by tokenized account number"
+    collection: "account"
+    type: "find"
+    filter:
+      accountKey.accountNumberTokenized: "${param:tokenizedAccount}"
+    expectedResults: 1
+    parameters:
+      tokenizedAccount:
+        type: "random_from_loaded"
+        collection: "account"
+        field: "accountKey.accountNumberTokenized"
+    targetLatencyMs: 20
+
+  # Account Holders Query - Find all accounts for a customer
+  - name: "account_by_customer"
+    description: "Find all accounts for a customer (multikey on accountHolders)"
+    collection: "account"
+    type: "find"
+    filter:
+      accountHolders.customerNumber: "${param:customerNumber}"
     parameters:
       customerNumber:
         type: "random_range"
         min: 1000000001
         max: 1000100000
+    targetLatencyMs: 30
 
-  # Mobile phones only
-  - name: "find_mobile_phones"
-    description: "Find mobile phone records"
-    collection: "phone"
+  # Account Last 4 Search
+  - name: "account_last4_search"
+    description: "Search accounts by last 4 digits"
+    collection: "account"
     type: "find"
     filter:
-      phoneKey.phoneNumberTypeCode: "MOBILE"
+      accountKey.accountNumberLast4: "${param:accountLast4}"
     limit: 100
+    parameters:
+      accountLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 50
 
-  # Aggregation - count by state
-  - name: "aggregate_addresses_by_state"
-    description: "Count addresses grouped by state"
+  # ---------------------------------------------------------------------------
+  # AGGREGATION QUERIES
+  # ---------------------------------------------------------------------------
+
+  # Count by State
+  - name: "agg_count_by_state"
+    description: "Count customers by state"
     collection: "address"
     type: "aggregate"
     pipeline:
@@ -146,9 +613,10 @@ queries:
       - $sort:
           count: -1
       - $limit: 10
+    targetLatencyMs: 200
 
-  # Aggregation - count by entity type
-  - name: "aggregate_by_entity_type"
+  # Count by Entity Type
+  - name: "agg_count_by_entity_type"
     description: "Count customers by entity type"
     collection: "identity"
     type: "aggregate"
@@ -157,9 +625,10 @@ queries:
           _id: "$common.entityTypeIndicator"
           count:
             $sum: 1
+    targetLatencyMs: 100
 
-  # Aggregation - phone type distribution
-  - name: "aggregate_phone_types"
+  # Phone Type Distribution
+  - name: "agg_phone_type_distribution"
     description: "Count phones by type"
     collection: "phone"
     type: "aggregate"
@@ -170,10 +639,81 @@ queries:
             $sum: 1
       - $sort:
           count: -1
+    targetLatencyMs: 100
 
-  # Count query
-  - name: "count_all_identities"
-    description: "Count total identity documents"
+  # Account Holder Count Distribution
+  - name: "agg_account_holder_distribution"
+    description: "Count accounts by number of holders"
+    collection: "account"
+    type: "aggregate"
+    pipeline:
+      - $project:
+          holderCount:
+            $size: "$accountHolders"
+      - $group:
+          _id: "$holderCount"
+          count:
+            $sum: 1
+      - $sort:
+          _id: 1
+    targetLatencyMs: 100
+
+  # Email Count Distribution (embedded in identity)
+  - name: "agg_email_count_distribution"
+    description: "Count identities by number of emails"
+    collection: "identity"
+    type: "aggregate"
+    pipeline:
+      - $project:
+          emailCount:
+            $size:
+              $ifNull: ["$emails", []]
+      - $group:
+          _id: "$emailCount"
+          count:
+            $sum: 1
+      - $sort:
+          _id: 1
+    targetLatencyMs: 100
+
+  # ---------------------------------------------------------------------------
+  # BASELINE QUERIES (Simple lookups for comparison)
+  # ---------------------------------------------------------------------------
+
+  # Primary Key Lookup
+  - name: "baseline_pk_lookup"
+    description: "Baseline: Primary key lookup"
+    collection: "identity"
+    type: "find"
+    filter:
+      _id.customerNumber: "${param:customerNumber}"
+      _id.customerCompanyNumber: 1
+    expectedResults: 1
+    parameters:
+      customerNumber:
+        type: "random_range"
+        min: 1000000001
+        max: 1000100000
+    targetLatencyMs: 10
+
+  # Count All Documents
+  - name: "baseline_count_all"
+    description: "Baseline: Count all identity documents"
     collection: "identity"
     type: "count"
     filter: {}
+    targetLatencyMs: 50
+
+# =============================================================================
+# REPORT CONFIGURATION
+# =============================================================================
+
+reporting:
+  outputFormats:
+    - console
+    - csv
+    - json
+  includeExplainPlan: true
+  includeIndexUsage: true
+  compareToTarget: true
+  targetLatencyMs: 200

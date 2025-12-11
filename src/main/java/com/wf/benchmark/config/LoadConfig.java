@@ -34,6 +34,7 @@ public class LoadConfig {
     private long identityCount = -1; // -1 means use scale
     private double addressRatio = 1.0;
     private double phoneRatio = 2.5;
+    private double accountRatio = 1.5; // 1.5 accounts per identity
 
     // Performance tuning
     private int threads = 4;
@@ -98,6 +99,9 @@ public class LoadConfig {
             }
             if (load.containsKey("phoneRatio")) {
                 config.phoneRatio = ((Number) load.get("phoneRatio")).doubleValue();
+            }
+            if (load.containsKey("accountRatio")) {
+                config.accountRatio = ((Number) load.get("accountRatio")).doubleValue();
             }
             if (load.containsKey("threads")) {
                 config.threads = (Integer) load.get("threads");
@@ -165,6 +169,10 @@ public class LoadConfig {
         return (long) (getEffectiveIdentityCount() * phoneRatio);
     }
 
+    public long getAccountCount() {
+        return (long) (getEffectiveIdentityCount() * accountRatio);
+    }
+
     // Getters and setters
     public ConnectionConfig getConnection() {
         return connection;
@@ -204,6 +212,14 @@ public class LoadConfig {
 
     public void setPhoneRatio(double phoneRatio) {
         this.phoneRatio = phoneRatio;
+    }
+
+    public double getAccountRatio() {
+        return accountRatio;
+    }
+
+    public void setAccountRatio(double accountRatio) {
+        this.accountRatio = accountRatio;
     }
 
     public int getThreads() {
