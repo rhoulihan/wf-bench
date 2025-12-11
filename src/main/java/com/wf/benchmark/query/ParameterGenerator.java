@@ -1,29 +1,44 @@
 package com.wf.benchmark.query;
 
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
 import com.wf.benchmark.config.QueryConfig.ParameterDefinition;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.bson.Document;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Generates parameter values for query execution based on configuration.
  */
 public class ParameterGenerator {
 
+    private static final Logger log = LoggerFactory.getLogger(ParameterGenerator.class);
     private static final Pattern PARAM_PATTERN = Pattern.compile("\\$\\{param:([^}]+)\\}");
+    private static final int DEFAULT_SAMPLE_SIZE = 1000;
 
     private final Map<String, ParameterDefinition> parameterDefs;
     private final Map<String, AtomicLong> sequentialCounters = new java.util.HashMap<>();
+    private final MongoDatabase database;
+    private final Map<String, List<Object>> loadedValueCache = new ConcurrentHashMap<>();
 
     public ParameterGenerator(Map<String, ParameterDefinition> parameterDefs) {
+        this(parameterDefs, null);
+    }
+
+    public ParameterGenerator(Map<String, ParameterDefinition> parameterDefs, MongoDatabase database) {
         this.parameterDefs = parameterDefs;
+        this.database = database;
     }
 
     /**
@@ -70,6 +85,8 @@ public class ParameterGenerator {
             case "random_choice" -> generateRandomChoice(paramDef);
             case "sequential" -> generateSequential(paramName, paramDef);
             case "fixed" -> paramDef.getFixedValue();
+            case "random_pattern" -> generateRandomPattern(paramDef);
+            case "random_from_loaded" -> generateRandomFromLoaded(paramDef);
             default -> throw new IllegalArgumentException("Unknown parameter type: " + paramDef.getType());
         };
     }
@@ -100,9 +117,203 @@ public class ParameterGenerator {
     }
 
     /**
-     * Reset sequential counters for a new benchmark run.
+     * Generate a random string matching a simple regex-like pattern.
+     * Supports:
+     * - \d{n} - n digits
+     * - [A-Z]{n} - n uppercase letters
+     * - [a-z]{n} - n lowercase letters
+     * - [A-Za-z]{n} - n letters (mixed case)
+     * - Literal characters (including -)
+     *
+     * Examples:
+     * - \d{4} -> "1234"
+     * - \d{3}-\d{2}-\d{4} -> "123-45-6789" (SSN format)
+     * - [A-Z]{2}\d{6} -> "AB123456"
+     */
+    private Object generateRandomPattern(ParameterDefinition paramDef) {
+        String pattern = paramDef.getPattern();
+        if (pattern == null || pattern.isEmpty()) {
+            throw new IllegalArgumentException("Pattern is required for random_pattern type");
+        }
+
+        Random random = ThreadLocalRandom.current();
+        StringBuilder result = new StringBuilder();
+        int i = 0;
+
+        while (i < pattern.length()) {
+            if (pattern.startsWith("\\d", i)) {
+                // Handle \d or \d{n}
+                i += 2;
+                int count = parseRepetition(pattern, i);
+                i = skipRepetition(pattern, i);
+                for (int j = 0; j < count; j++) {
+                    result.append((char) ('0' + random.nextInt(10)));
+                }
+            } else if (pattern.startsWith("[A-Z]", i)) {
+                // Handle [A-Z] or [A-Z]{n}
+                i += 5;
+                int count = parseRepetition(pattern, i);
+                i = skipRepetition(pattern, i);
+                for (int j = 0; j < count; j++) {
+                    result.append((char) ('A' + random.nextInt(26)));
+                }
+            } else if (pattern.startsWith("[a-z]", i)) {
+                // Handle [a-z] or [a-z]{n}
+                i += 5;
+                int count = parseRepetition(pattern, i);
+                i = skipRepetition(pattern, i);
+                for (int j = 0; j < count; j++) {
+                    result.append((char) ('a' + random.nextInt(26)));
+                }
+            } else if (pattern.startsWith("[A-Za-z]", i)) {
+                // Handle [A-Za-z] or [A-Za-z]{n}
+                i += 8;
+                int count = parseRepetition(pattern, i);
+                i = skipRepetition(pattern, i);
+                for (int j = 0; j < count; j++) {
+                    if (random.nextBoolean()) {
+                        result.append((char) ('A' + random.nextInt(26)));
+                    } else {
+                        result.append((char) ('a' + random.nextInt(26)));
+                    }
+                }
+            } else if (pattern.startsWith("[0-9]", i)) {
+                // Handle [0-9] or [0-9]{n} (same as \d)
+                i += 5;
+                int count = parseRepetition(pattern, i);
+                i = skipRepetition(pattern, i);
+                for (int j = 0; j < count; j++) {
+                    result.append((char) ('0' + random.nextInt(10)));
+                }
+            } else {
+                // Literal character
+                result.append(pattern.charAt(i));
+                i++;
+            }
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Parse the repetition count from {n} syntax.
+     * Returns 1 if no repetition is specified.
+     */
+    private int parseRepetition(String pattern, int start) {
+        if (start < pattern.length() && pattern.charAt(start) == '{') {
+            int end = pattern.indexOf('}', start);
+            if (end > start) {
+                return Integer.parseInt(pattern.substring(start + 1, end));
+            }
+        }
+        return 1;
+    }
+
+    /**
+     * Skip past the {n} syntax if present.
+     */
+    private int skipRepetition(String pattern, int start) {
+        if (start < pattern.length() && pattern.charAt(start) == '{') {
+            int end = pattern.indexOf('}', start);
+            if (end > start) {
+                return end + 1;
+            }
+        }
+        return start;
+    }
+
+    /**
+     * Generate a random value by sampling from loaded data in the database.
+     * Supports nested field paths like "phoneKey.phoneNumber" or "common.taxIdentificationNumber".
+     * Caches loaded values for performance.
+     */
+    private Object generateRandomFromLoaded(ParameterDefinition paramDef) {
+        if (database == null) {
+            throw new IllegalStateException("Database not configured for random_from_loaded parameter type. " +
+                "Use constructor with MongoDatabase parameter.");
+        }
+
+        String collection = paramDef.getCollection();
+        String field = paramDef.getField();
+        String cacheKey = collection + ":" + field;
+
+        // Check cache first
+        List<Object> cachedValues = loadedValueCache.get(cacheKey);
+        if (cachedValues == null) {
+            cachedValues = loadValuesFromDatabase(collection, field);
+            loadedValueCache.put(cacheKey, cachedValues);
+        }
+
+        if (cachedValues.isEmpty()) {
+            throw new IllegalStateException("No values found for " + field + " in collection " + collection);
+        }
+
+        // Return random value from cache
+        Random random = ThreadLocalRandom.current();
+        return cachedValues.get(random.nextInt(cachedValues.size()));
+    }
+
+    /**
+     * Load sample values from the database.
+     * Uses a projection to only fetch the required field.
+     */
+    private List<Object> loadValuesFromDatabase(String collectionName, String fieldPath) {
+        log.info("Loading sample values from {}.{}", collectionName, fieldPath);
+
+        MongoCollection<Document> collection = database.getCollection(collectionName);
+
+        // Build projection for the field path
+        Document projection = new Document();
+        String[] parts = fieldPath.split("\\.");
+        projection.append(parts[0], 1);  // Project the root field
+        projection.append("_id", 0);      // Exclude _id
+
+        List<Object> values = new ArrayList<>();
+        try (var cursor = collection.find()
+                .projection(projection)
+                .limit(DEFAULT_SAMPLE_SIZE)
+                .skip(0)
+                .iterator()) {
+
+            while (cursor.hasNext()) {
+                Document doc = cursor.next();
+                Object value = extractNestedValue(doc, fieldPath);
+                if (value != null) {
+                    values.add(value);
+                }
+            }
+        }
+
+        log.info("Loaded {} sample values for {}.{}", values.size(), collectionName, fieldPath);
+        return values;
+    }
+
+    /**
+     * Extract a value from a nested field path like "phoneKey.phoneNumber".
+     */
+    private Object extractNestedValue(Document doc, String fieldPath) {
+        String[] parts = fieldPath.split("\\.");
+        Object current = doc;
+
+        for (String part : parts) {
+            if (current instanceof Document d) {
+                current = d.get(part);
+            } else {
+                return null;
+            }
+            if (current == null) {
+                return null;
+            }
+        }
+
+        return current;
+    }
+
+    /**
+     * Reset sequential counters and cached values for a new benchmark run.
      */
     public void reset() {
         sequentialCounters.clear();
+        loadedValueCache.clear();
     }
 }

@@ -58,7 +58,7 @@ public class QueryRunner {
             queryDef.getDescription());
 
         MongoCollection<Document> collection = database.getCollection(queryDef.getCollection());
-        ParameterGenerator paramGen = new ParameterGenerator(queryDef.getParameters());
+        ParameterGenerator paramGen = new ParameterGenerator(queryDef.getParameters(), database);
 
         int warmup = config.getQueryExecution().getWarmupIterations();
         int iterations = config.getQueryExecution().getIterations();

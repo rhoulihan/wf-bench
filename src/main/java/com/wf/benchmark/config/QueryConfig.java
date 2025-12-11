@@ -207,11 +207,14 @@ public class QueryConfig {
     }
 
     public static class ParameterDefinition {
-        private String type; // random_range, random_choice, sequential, fixed
+        private String type; // random_range, random_choice, sequential, fixed, random_pattern, random_from_loaded
         private Long min;
         private Long max;
         private List<Object> values;
         private Object fixedValue;
+        private String pattern; // for random_pattern type
+        private String collection; // for random_from_loaded type
+        private String field; // for random_from_loaded type
 
         public String getType() {
             return type;
@@ -251,6 +254,30 @@ public class QueryConfig {
 
         public void setFixedValue(Object fixedValue) {
             this.fixedValue = fixedValue;
+        }
+
+        public String getPattern() {
+            return pattern;
+        }
+
+        public void setPattern(String pattern) {
+            this.pattern = pattern;
+        }
+
+        public String getCollection() {
+            return collection;
+        }
+
+        public void setCollection(String collection) {
+            this.collection = collection;
+        }
+
+        public String getField() {
+            return field;
+        }
+
+        public void setField(String field) {
+            this.field = field;
         }
     }
 
@@ -363,6 +390,15 @@ public class QueryConfig {
                         }
                         if (p.containsKey("value")) {
                             paramDef.setFixedValue(p.get("value"));
+                        }
+                        if (p.containsKey("pattern")) {
+                            paramDef.setPattern((String) p.get("pattern"));
+                        }
+                        if (p.containsKey("collection")) {
+                            paramDef.setCollection((String) p.get("collection"));
+                        }
+                        if (p.containsKey("field")) {
+                            paramDef.setField((String) p.get("field"));
                         }
                         paramDefs.put(entry.getKey(), paramDef);
                     }
