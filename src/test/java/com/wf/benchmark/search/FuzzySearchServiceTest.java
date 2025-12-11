@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * TDD tests for FuzzySearchService.
- * Uses Oracle Text CONTAINS operator with fuzzy matching for approximate string searches.
+ * Uses Oracle JSON_TEXTCONTAINS with JSON Search Index for text searches in JSON documents.
  */
 class FuzzySearchServiceTest {
 
@@ -213,16 +213,16 @@ class FuzzySearchServiceTest {
     class SQLGenerationTests {
 
         @Test
-        void shouldGenerateCorrectFuzzyQuery() throws SQLException {
+        void shouldGenerateCorrectJsonTextContainsQuery() throws SQLException {
             // Given
             stubDataSource.setResultData(new String[][] {}); // No results
 
             // When
             fuzzySearchService.searchByName("test", "identity", 10);
 
-            // Then - verify the SQL was executed
-            assertThat(stubDataSource.getLastPreparedSql()).contains("CONTAINS");
-            assertThat(stubDataSource.getLastPreparedSql()).contains("SCORE");
+            // Then - verify the SQL uses JSON_TEXTCONTAINS
+            assertThat(stubDataSource.getLastPreparedSql()).contains("JSON_TEXTCONTAINS");
+            assertThat(stubDataSource.getLastPreparedSql()).contains("$.common.fullName");
         }
     }
 

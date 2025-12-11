@@ -12,14 +12,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Service for fuzzy text search using Oracle Text CONTAINS operator.
- * Uses Oracle Text indexes with fuzzy matching for approximate string searches.
+ * Service for fuzzy text search using Oracle JSON_TEXTCONTAINS.
+ * Uses JSON Search Index for approximate string searches on JSON data.
  *
- * Oracle Text fuzzy matching supports:
- * - Spelling variations
- * - Typos
- * - Character transpositions
- * - Missing/extra characters
+ * For Oracle Autonomous JSON Database (AJD) with native JSON columns,
+ * we use JSON_TEXTCONTAINS() which works with CREATE SEARCH INDEX ... FOR JSON.
+ *
+ * JSON_TEXTCONTAINS supports:
+ * - Full-text search within JSON documents
+ * - Searching specific JSON paths
+ * - Word-based matching
  *
  * This service queries JSON data stored in Oracle Autonomous JSON Database
  * using SQL with json_value() to extract fields from JSON documents.
@@ -37,10 +39,10 @@ public class FuzzySearchService {
     }
 
     /**
-     * Search for names using fuzzy matching.
-     * Uses Oracle Text CONTAINS with FUZZY operator.
+     * Search for names using JSON_TEXTCONTAINS with JSON Search Index.
+     * Performs word-based matching on the fullName field in JSON documents.
      *
-     * @param searchTerm The name to search for (can be partial or misspelled)
+     * @param searchTerm The name to search for (word-based matching)
      * @param collection The collection/table name (e.g., "identity")
      * @param limit Maximum number of results to return
      * @return List of matching results with scores
@@ -49,17 +51,17 @@ public class FuzzySearchService {
         validateSearchParams(searchTerm, collection);
 
         String sql = buildNameSearchQuery(collection, limit);
-        String fuzzyTerm = buildFuzzySearchTerm(searchTerm);
+        String sanitizedTerm = sanitizeSearchTerm(searchTerm);
 
-        log.debug("Executing fuzzy name search: term='{}', collection='{}', limit={}",
+        log.debug("Executing JSON text search for name: term='{}', collection='{}', limit={}",
                   searchTerm, collection, limit);
 
-        return executeSearch(sql, fuzzyTerm, "full_name");
+        return executeSearch(sql, sanitizedTerm, "full_name");
     }
 
     /**
-     * Search for business names using fuzzy matching.
-     * Handles special characters and common business name variations.
+     * Search for business names using JSON_TEXTCONTAINS.
+     * Performs word-based matching on the businessName field in JSON documents.
      *
      * @param searchTerm The business name to search for
      * @param collection The collection/table name
@@ -70,36 +72,36 @@ public class FuzzySearchService {
         validateSearchParams(searchTerm, collection);
 
         String sql = buildBusinessNameSearchQuery(collection, limit);
-        String sanitizedTerm = sanitizeBusinessName(searchTerm);
-        String fuzzyTerm = buildFuzzySearchTerm(sanitizedTerm);
+        String sanitizedTerm = sanitizeSearchTerm(searchTerm);
 
-        log.debug("Executing fuzzy business name search: term='{}', sanitized='{}', collection='{}', limit={}",
+        log.debug("Executing JSON text search for business name: term='{}', sanitized='{}', collection='{}', limit={}",
                   searchTerm, sanitizedTerm, collection, limit);
 
-        return executeSearch(sql, fuzzyTerm, "business_name");
+        return executeSearch(sql, sanitizedTerm, "business_name");
     }
 
     /**
-     * Build the SQL query for name search using Oracle Text.
-     * Uses json_value() to extract fields from JSON documents.
+     * Build the SQL query for name search using JSON_TEXTCONTAINS.
+     * Uses JSON Search Index for full-text search within JSON documents.
      * Note: MongoDB API for Oracle stores JSON in a column named DATA.
+     *
+     * JSON_TEXTCONTAINS syntax: JSON_TEXTCONTAINS(column, json_path, search_string)
      */
     private String buildNameSearchQuery(String collection, int limit) {
         return """
             SELECT
                 json_value(DATA, '$._id.customerNumber') as customer_number,
                 json_value(DATA, '$.common.fullName') as full_name,
-                SCORE(1) as score
+                100 as score
             FROM %s
-            WHERE CONTAINS(DATA, ?, 1) > 0
-            AND SCORE(1) >= ?
-            ORDER BY SCORE(1) DESC
+            WHERE JSON_TEXTCONTAINS(DATA, '$.common.fullName', ?)
             FETCH FIRST ? ROWS ONLY
             """.formatted(collection);
     }
 
     /**
-     * Build the SQL query for business name search using Oracle Text.
+     * Build the SQL query for business name search using JSON_TEXTCONTAINS.
+     * Uses JSON Search Index for full-text search within JSON documents.
      * Note: MongoDB API for Oracle stores JSON in a column named DATA.
      */
     private String buildBusinessNameSearchQuery(String collection, int limit) {
@@ -107,79 +109,44 @@ public class FuzzySearchService {
             SELECT
                 json_value(DATA, '$._id.customerNumber') as customer_number,
                 json_value(DATA, '$.business.businessName') as business_name,
-                SCORE(1) as score
+                100 as score
             FROM %s
-            WHERE CONTAINS(DATA, ?, 1) > 0
+            WHERE JSON_TEXTCONTAINS(DATA, '$.business.businessName', ?)
             AND json_value(DATA, '$.common.entityTypeIndicator') = 'BUSINESS'
-            AND SCORE(1) >= ?
-            ORDER BY SCORE(1) DESC
             FETCH FIRST ? ROWS ONLY
             """.formatted(collection);
     }
 
     /**
-     * Build a fuzzy search term for Oracle Text CONTAINS.
-     * Uses the FUZZY operator with configurable similarity threshold.
+     * Sanitize search term for JSON_TEXTCONTAINS.
+     * Removes special characters that might cause issues with text search.
      */
-    private String buildFuzzySearchTerm(String searchTerm) {
-        // Oracle Text FUZZY syntax: FUZZY(term, score, numexpand)
-        // score: minimum similarity (1-80), lower = more fuzzy
-        // numexpand: max expansions to consider
-        return "FUZZY(" + escapeOracleText(searchTerm) + ", 70, 100)";
-    }
-
-    /**
-     * Sanitize business name by removing special characters that cause issues.
-     */
-    private String sanitizeBusinessName(String name) {
-        if (name == null) {
+    private String sanitizeSearchTerm(String term) {
+        if (term == null) {
             return null;
         }
-        // Remove common business suffixes and special characters
-        return name
-            .replaceAll("[&]", " ")
-            .replaceAll("[,.]", " ")
+        // Remove special characters and normalize whitespace
+        return term
+            .replaceAll("[&,.]", " ")
+            .replaceAll("[^a-zA-Z0-9\\s]", "")
             .replaceAll("\\s+", " ")
             .trim();
     }
 
     /**
-     * Escape special characters for Oracle Text query.
-     */
-    private String escapeOracleText(String term) {
-        if (term == null) {
-            return null;
-        }
-        // Escape Oracle Text special characters: { } ( ) [ ] - & | ! > < ~ *
-        return term
-            .replace("{", "\\{")
-            .replace("}", "\\}")
-            .replace("(", "\\(")
-            .replace(")", "\\)")
-            .replace("[", "\\[")
-            .replace("]", "\\]")
-            .replace("-", "\\-")
-            .replace("&", "\\&")
-            .replace("|", "\\|")
-            .replace("!", "\\!")
-            .replace(">", "\\>")
-            .replace("<", "\\<")
-            .replace("~", "\\~")
-            .replace("*", "\\*");
-    }
-
-    /**
      * Execute the search query and map results.
+     * Query has 2 bind parameters: search term and limit.
      */
-    private List<FuzzySearchResult> executeSearch(String sql, String fuzzyTerm, String valueColumn) {
+    private List<FuzzySearchResult> executeSearch(String sql, String searchTerm, String valueColumn) {
         List<FuzzySearchResult> results = new ArrayList<>();
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            stmt.setString(1, fuzzyTerm);
-            stmt.setInt(2, minScore);
-            stmt.setInt(3, 100); // limit parameter position
+            stmt.setString(1, searchTerm);
+            stmt.setInt(2, 100); // limit parameter
+
+            log.debug("Executing SQL: {} with searchTerm='{}', limit={}", sql.trim().replaceAll("\\s+", " "), searchTerm, 100);
 
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -192,11 +159,11 @@ public class FuzzySearchService {
             }
 
         } catch (SQLException e) {
-            log.error("Fuzzy search failed: {}", e.getMessage(), e);
-            throw new SearchException("Fuzzy search failed", e);
+            log.error("JSON text search failed: {}", e.getMessage(), e);
+            throw new SearchException("JSON text search failed", e);
         }
 
-        log.debug("Fuzzy search returned {} results", results.size());
+        log.debug("JSON text search returned {} results", results.size());
         return results;
     }
 

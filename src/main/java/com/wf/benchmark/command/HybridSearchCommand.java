@@ -163,26 +163,41 @@ public class HybridSearchCommand implements Callable<Integer> {
     }
 
     private DataSource createDataSource() {
-        // Check if credentials are embedded in the JDBC URL (format: jdbc:oracle:thin:user/pass@...)
         String effectiveUrl = jdbcUrl;
         String effectiveUsername = username;
         String effectivePassword = password;
 
-        // Parse embedded credentials from Oracle thin URL: jdbc:oracle:thin:user/pass@...
-        if (jdbcUrl.startsWith("jdbc:oracle:thin:") && jdbcUrl.contains("@")) {
-            String afterThin = jdbcUrl.substring("jdbc:oracle:thin:".length());
-            int atIndex = afterThin.indexOf("@");
-            if (atIndex > 0) {
-                String credsPart = afterThin.substring(0, atIndex);
-                int slashIndex = credsPart.indexOf("/");
-                if (slashIndex > 0) {
-                    // Credentials are embedded - extract them
-                    effectiveUsername = credsPart.substring(0, slashIndex);
-                    effectivePassword = credsPart.substring(slashIndex + 1);
-                    // Remove credentials from URL for HikariCP (it will add them separately)
-                    effectiveUrl = "jdbc:oracle:thin:@" + afterThin.substring(atIndex + 1);
+        // Priority: explicit -u/-p options > embedded credentials in URL
+        // Only parse embedded credentials if -u/-p were NOT provided
+        if (username == null && password == null) {
+            // Try to parse embedded credentials from Oracle thin URL: jdbc:oracle:thin:user/pass@...
+            if (jdbcUrl.startsWith("jdbc:oracle:thin:") && jdbcUrl.contains("@")) {
+                String afterThin = jdbcUrl.substring("jdbc:oracle:thin:".length());
+                int atIndex = afterThin.indexOf("@");
+                if (atIndex > 0) {
+                    String credsPart = afterThin.substring(0, atIndex);
+                    int slashIndex = credsPart.indexOf("/");
+                    if (slashIndex > 0) {
+                        // Credentials are embedded - extract them
+                        effectiveUsername = credsPart.substring(0, slashIndex);
+                        effectivePassword = credsPart.substring(slashIndex + 1);
+                        // Remove credentials from URL for HikariCP (it will add them separately)
+                        effectiveUrl = "jdbc:oracle:thin:@" + afterThin.substring(atIndex + 1);
+                        if (!quiet) {
+                            System.out.println("Detected embedded credentials in JDBC URL");
+                        }
+                    }
+                }
+            }
+        } else {
+            // Explicit credentials provided - ensure URL doesn't have embedded creds
+            if (jdbcUrl.startsWith("jdbc:oracle:thin:") && !jdbcUrl.startsWith("jdbc:oracle:thin:@")) {
+                // URL might have embedded creds, strip them and use only -u/-p values
+                int atIndex = jdbcUrl.indexOf("@");
+                if (atIndex > 0) {
+                    effectiveUrl = "jdbc:oracle:thin:@" + jdbcUrl.substring(atIndex + 1);
                     if (!quiet) {
-                        System.out.println("Detected embedded credentials in JDBC URL");
+                        System.out.println("Using explicit -u/-p credentials (ignoring embedded URL credentials)");
                     }
                 }
             }
