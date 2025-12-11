@@ -131,35 +131,62 @@ This is expected behavior - the query still executes but returns fewer results.
 
 ## Index Summary
 
-All 20 indexes were created successfully:
+All 20 indexes were created successfully. The indexes support various query patterns including exact match, range queries, compound filters, and multikey arrays.
 
 ### Identity Collection (9 indexes)
-- `idx_identity_tin_full` - Full TIN search
-- `idx_identity_tin_last4` - Partial TIN search
-- `idx_identity_fullname` - Full name search
-- `idx_identity_name_parts` - First/last name compound
-- `idx_identity_entity_type` - Entity type filter
-- `idx_identity_dob` - Date of birth search
-- `idx_identity_id_docs` - ID document number (multikey)
-- `idx_identity_ecn` - Enterprise customer number
-- `idx_identity_email` - Email address (multikey)
+
+| Index Name | Type | Keys | Options | Use Cases |
+|------------|------|------|---------|-----------|
+| `idx_identity_tin_full` | Single | `common.taxIdentificationNumber: 1` | background | OS-1: Full TIN/SSN search |
+| `idx_identity_tin_last4` | Single | `common.taxIdentificationNumberLast4: 1` | background | UC-1, UC-2, UC-4, UC-5, WR-Q: Partial TIN |
+| `idx_identity_fullname` | Single | `common.fullName: 1` | background | WR-H: Full name search |
+| `idx_identity_name_parts` | Compound | `individual.lastName: 1, individual.firstName: 1` | background | WR-H: Structured name search |
+| `idx_identity_entity_type` | Single | `common.entityTypeIndicator: 1` | background | WR-G: Entity type filter |
+| `idx_identity_dob` | Single | `individual.birthDate: 1` | background | WR-F: DOB search |
+| `idx_identity_id_docs` | Multikey | `common.identifications.identificationNumber: 1` | background | WR-S: DL/Passport lookup |
+| `idx_identity_ecn` | Single | `common.ecn: 1` | background, sparse | WR-K: ECN lookup |
+| `idx_identity_email` | Multikey | `emails.emailAddress: 1` | background | UC-6, UC-7, WR-E: Email search |
 
 ### Address Collection (3 indexes)
-- `idx_address_city_state_zip` - Location compound
-- `idx_address_zip` - ZIP code only
-- `idx_address_customer` - Customer lookup
+
+| Index Name | Type | Keys | Options | Use Cases |
+|------------|------|------|---------|-----------|
+| `idx_address_city_state_zip` | Compound | `addresses.stateCode: 1, addresses.cityName: 1, addresses.postalCode: 1` | background | UC-5, WR-B: Location search |
+| `idx_address_zip` | Single | `addresses.postalCode: 1` | background | WR-C: ZIP-only search |
+| `idx_address_customer` | Compound | `_id.customerNumber: 1, _id.customerCompanyNumber: 1` | - | Customer lookup |
 
 ### Phone Collection (3 indexes)
-- `idx_phone_number` - Full phone number
-- `idx_phone_customer` - Customer lookup
-- `idx_phone_type` - Phone type filter
+
+| Index Name | Type | Keys | Options | Use Cases |
+|------------|------|------|---------|-----------|
+| `idx_phone_number` | Single | `phoneKey.phoneNumber: 1` | background | OS-4, UC-1, UC-2, UC-3, UC-7: Phone search |
+| `idx_phone_customer` | Compound | `phoneKey.customerNumber: 1, phoneKey.customerCompanyNumber: 1` | background | Customer lookup/join |
+| `idx_phone_type` | Single | `phoneKey.phoneNumberTypeCode: 1` | background | Phone type filter |
 
 ### Account Collection (5 indexes)
-- `idx_account_last4` - Account number last 4
-- `idx_account_full` - Full account number
-- `idx_account_tokenized` - Tokenized account number
-- `idx_account_holders` - Customer lookup (multikey)
-- `idx_account_product_coid` - Product type + COID compound
+
+| Index Name | Type | Keys | Options | Use Cases |
+|------------|------|------|---------|-----------|
+| `idx_account_last4` | Single | `accountKey.accountNumberLast4: 1` | background | UC-2, UC-3, UC-4, UC-5, UC-6, UC-7: Partial account |
+| `idx_account_full` | Single | `accountKey.accountNumber: 1` | background | OS-2: Full account lookup |
+| `idx_account_tokenized` | Single | `accountKey.accountNumberTokenized: 1` | background, sparse | OS-3: Tokenized account |
+| `idx_account_holders` | Multikey | `accountHolders.customerNumber: 1, accountHolders.customerCompanyNumber: 1` | background | Customer-to-account join |
+| `idx_account_product_coid` | Compound | `productTypeCode: 1, companyOfInterestId: 1` | background | OS-2: Product/COID filter |
+
+### Index Type Legend
+
+| Type | Description |
+|------|-------------|
+| **Single** | Index on a single field for equality and range queries |
+| **Compound** | Index on multiple fields in order; supports queries using leading subset of keys |
+| **Multikey** | Index on array field; creates entry for each array element |
+
+### Index Options
+
+| Option | Description |
+|--------|-------------|
+| **background** | Build index without blocking other operations |
+| **sparse** | Only index documents that contain the indexed field |
 
 ---
 
