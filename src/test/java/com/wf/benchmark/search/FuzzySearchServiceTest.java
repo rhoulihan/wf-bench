@@ -493,10 +493,36 @@ class FuzzySearchServiceTest {
         public String getString(String columnLabel) {
             if (currentRow >= 0 && currentRow < dataSource.resultData.length) {
                 String[] row = dataSource.resultData[currentRow];
+                // Map column names to array indices based on query type
+                // Different queries have different column orders:
+                // Phonetic/Fuzzy: [customer_number, full_name/business_name, soundex_code]
+                // UC-1: [customer_number, phone_number, full_name, ssn_last4]
+                // UC-2: [customer_number, phone_number, full_name, ssn_last4, account_number, account_last4]
+                // UC-4: [customer_number, account_number, full_name, ssn_last4]
+                // UC-6: [customer_number, email, full_name, account_last4]
                 return switch (columnLabel) {
                     case "customer_number" -> row[0];
-                    case "full_name", "business_name", "description" -> row[1];
-                    case "soundex_code" -> row.length > 2 ? row[2] : null;
+                    // Phonetic/Fuzzy queries use index 1 for name
+                    case "full_name", "business_name", "description" -> row.length == 3 ? row[1] :
+                        (row.length >= 3 ? row[2] : null); // UC queries have full_name at index 2
+                    case "soundex_code" -> row.length == 3 ? row[2] : null;
+                    // UC query columns
+                    case "phone_number" -> row.length >= 2 ? row[1] : null;
+                    case "email" -> row.length >= 2 ? row[1] : null;
+                    case "ssn_last4" -> row.length >= 4 ? row[3] : null;
+                    case "account_number" -> {
+                        // UC-2: index 4, UC-4: index 1
+                        if (row.length == 6) yield row[4]; // UC-2
+                        if (row.length == 4 && dataSource.lastPreparedSql != null &&
+                            dataSource.lastPreparedSql.contains("accountKey.accountNumber")) yield row[1]; // UC-4
+                        yield null;
+                    }
+                    case "account_last4" -> {
+                        // UC-2: index 5, UC-6: index 3
+                        if (row.length == 6) yield row[5]; // UC-2
+                        if (row.length == 4) yield row[3]; // UC-6
+                        yield null;
+                    }
                     default -> null;
                 };
             }

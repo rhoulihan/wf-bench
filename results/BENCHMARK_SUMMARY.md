@@ -22,7 +22,7 @@ Successfully executed 28 query benchmarks with correlated parameter support and 
 | Concurrent Threads | 12 |
 | MongoDB API Iterations | 100 (+ 10 warmup) |
 | Hybrid Search Iterations | 100 (+ 10 warmup) |
-| Unit Tests | 151 (all passing) |
+| Unit Tests | 172 (all passing) |
 
 ---
 
@@ -287,54 +287,124 @@ db.account.find({"accountHolders.customerNumber": 1000000001, "accountKey.accoun
 - `UC1-UC7 Tests`: Each use case has dedicated tests
 - `YamlParsingTests`: YAML parsing of join definitions
 
-### Alternative: SQL Join Queries
+### SQL JOIN Implementation (Alternative Approach)
 
-For better performance, the UC join queries could also be implemented as single SQL statements using Oracle's native JSON functions and JOIN operations. This avoids multiple round-trips to the database:
+The benchmark tool now includes an **implemented SQL JOIN approach** as an alternative to the sequential MongoDB find() operations. This uses Oracle's native SQL JOIN with `json_value()` functions to execute multi-collection queries in a single database round-trip.
 
-**UC-1: Phone + SSN Last 4 (SQL equivalent)**
+#### SQL JOIN Benchmark Results
+
+| Query | Description | Implementation | Avg (ms) | P95 (ms) | Throughput | Notes |
+|-------|-------------|----------------|----------|----------|------------|-------|
+| uc1_phone_ssn_last4_sql | Phone + SSN Last 4 | SQL 2-way JOIN | 26.59 | 29.12 | 37.6/s | Single round-trip |
+| uc2_phone_ssn_account_sql | Phone + SSN + Account | SQL 3-way JOIN | - | - | - | Requires account table |
+| uc4_account_ssn_sql | Account + SSN | SQL 2-way JOIN | - | - | - | Requires account table |
+| uc6_email_account_sql | Email + Account Last 4 | SQL 2-way JOIN | - | - | - | Requires account table |
+
+**Note:** UC-2, UC-4, and UC-6 SQL JOIN queries require the account collection to be present. The preliminary UC-1 benchmark demonstrates the SQL JOIN approach.
+
+#### Comparison: Sequential MongoDB vs SQL JOIN
+
+| Approach | UC-1 (Phone + SSN) | Round Trips | Best For |
+|----------|-------------------|-------------|----------|
+| **MongoDB Sequential** | 7.87 ms | 2 | Simple joins, MongoDB-compatible code |
+| **SQL JOIN** | 26.59 ms | 1 | Complex joins, Oracle-specific optimization |
+
+**Analysis:** The SQL JOIN approach currently shows higher latency than sequential MongoDB finds. This may be due to:
+1. Lack of indexes on `json_value()` expressions (functional indexes needed)
+2. Query plan not fully optimized for JSON column joins
+3. Network overhead differences between MongoDB API and JDBC
+
+For optimal SQL JOIN performance, consider adding functional indexes:
 ```sql
-SELECT p.DATA, i.DATA
+CREATE INDEX idx_phone_customer_json ON phone(json_value(DATA, '$.phoneKey.customerNumber'));
+CREATE INDEX idx_identity_customer_json ON identity(json_value(DATA, '$._id.customerNumber'));
+```
+
+#### SQL JOIN Query Definitions
+
+**UC-1: Phone + SSN Last 4 (SQL JOIN)**
+```sql
+SELECT
+    json_value(i.DATA, '$._id.customerNumber') as customer_number,
+    json_value(p.DATA, '$.phoneKey.phoneNumber') as phone_number,
+    json_value(i.DATA, '$.common.fullName') as full_name,
+    json_value(i.DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4
 FROM phone p
 JOIN identity i ON json_value(p.DATA, '$.phoneKey.customerNumber') =
                    json_value(i.DATA, '$._id.customerNumber')
 WHERE json_value(p.DATA, '$.phoneKey.phoneNumber') = ?
   AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
+FETCH FIRST ? ROWS ONLY
 ```
 
-**UC-2: Phone + SSN + Account (SQL equivalent)**
+**UC-2: Phone + SSN + Account (SQL 3-way JOIN)**
 ```sql
-SELECT p.DATA, i.DATA, a.DATA
+SELECT
+    json_value(i.DATA, '$._id.customerNumber') as customer_number,
+    json_value(p.DATA, '$.phoneKey.phoneNumber') as phone_number,
+    json_value(i.DATA, '$.common.fullName') as full_name,
+    json_value(i.DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4,
+    json_value(a.DATA, '$.accountKey.accountNumber') as account_number,
+    json_value(a.DATA, '$.accountKey.accountNumberLast4') as account_last4
 FROM phone p
 JOIN identity i ON json_value(p.DATA, '$.phoneKey.customerNumber') =
                    json_value(i.DATA, '$._id.customerNumber')
 JOIN account a ON json_value(i.DATA, '$._id.customerNumber') =
-                  json_value(a.DATA, '$.accountHolders[*].customerNumber')
+                  json_value(a.DATA, '$.accountHolders[0].customerNumber')
 WHERE json_value(p.DATA, '$.phoneKey.phoneNumber') = ?
   AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
   AND json_value(a.DATA, '$.accountKey.accountNumberLast4') = ?
+FETCH FIRST ? ROWS ONLY
 ```
 
-**UC-4: Account + SSN (SQL equivalent)**
+**UC-4: Account + SSN (SQL JOIN)**
 ```sql
-SELECT a.DATA, i.DATA
+SELECT
+    json_value(i.DATA, '$._id.customerNumber') as customer_number,
+    json_value(a.DATA, '$.accountKey.accountNumber') as account_number,
+    json_value(i.DATA, '$.common.fullName') as full_name,
+    json_value(i.DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4
 FROM account a
 JOIN identity i ON json_value(a.DATA, '$.accountHolders[0].customerNumber') =
                    json_value(i.DATA, '$._id.customerNumber')
 WHERE json_value(a.DATA, '$.accountKey.accountNumber') = ?
   AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
+FETCH FIRST ? ROWS ONLY
 ```
 
-**UC-6: Email + Account Last 4 (SQL equivalent)**
+**UC-6: Email + Account Last 4 (SQL JOIN)**
 ```sql
-SELECT i.DATA, a.DATA
+SELECT
+    json_value(i.DATA, '$._id.customerNumber') as customer_number,
+    json_value(i.DATA, '$.emails[0].emailAddress') as email,
+    json_value(i.DATA, '$.common.fullName') as full_name,
+    json_value(a.DATA, '$.accountKey.accountNumberLast4') as account_last4
 FROM identity i
 JOIN account a ON json_value(i.DATA, '$._id.customerNumber') =
-                  json_value(a.DATA, '$.accountHolders[*].customerNumber')
-WHERE json_value(i.DATA, '$.emails[*].emailAddress') = ?
+                  json_value(a.DATA, '$.accountHolders[0].customerNumber')
+WHERE json_value(i.DATA, '$.emails[0].emailAddress') = ?
   AND json_value(a.DATA, '$.accountKey.accountNumberLast4') = ?
+FETCH FIRST ? ROWS ONLY
 ```
 
-**Note:** These SQL queries leverage Oracle's query optimizer for join planning and can execute in a single database round-trip. The current MongoDB API implementation uses sequential find() operations which may have higher latency for complex joins but works with any MongoDB-compatible driver.
+#### Running UC SQL JOIN Benchmarks
+
+```bash
+# Run all UC SQL JOIN benchmarks
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --collection-prefix "bench_" \
+  --uc-benchmark \
+  -i 100 -w 10
+
+# Run individual UC queries
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --collection-prefix "bench_" \
+  --uc1-phone "5551234567" --uc1-ssn-last4 "6789"
+```
+
+**Note:** The SQL JOIN approach leverages Oracle's query optimizer for join planning and executes in a single database round-trip. The MongoDB API implementation uses sequential find() operations which may have lower latency for simple joins due to connection pooling and query caching, but SQL JOINs scale better for complex multi-table queries when properly indexed.
 
 ---
 
@@ -661,7 +731,7 @@ See `config/hybrid-search-config.yaml` for full configuration and query definiti
 - **Driver:** MongoDB Java Driver 5.2.1
 - **Connection:** MongoDB API for Oracle (ORDS)
 - **Region:** US-Ashburn-1
-- **Test Suite:** 151 tests (146 unit + 5 skipped integration)
+- **Test Suite:** 172 tests (167 unit + 5 skipped integration)
 
 ---
 

@@ -106,6 +106,40 @@ public class HybridSearchCommand implements Callable<Integer> {
     @Option(names = {"-q", "--quiet"}, description = "Suppress progress output", defaultValue = "false")
     private boolean quiet;
 
+    // UC SQL JOIN query options
+    @Option(names = {"--uc-benchmark"}, description = "Run UC SQL join query benchmark", defaultValue = "false")
+    private boolean ucBenchmark;
+
+    @Option(names = {"--uc1-phone"}, description = "Phone number for UC-1 query (Phone + SSN Last 4)")
+    private String uc1Phone;
+
+    @Option(names = {"--uc1-ssn-last4"}, description = "SSN last 4 digits for UC-1 query")
+    private String uc1SsnLast4;
+
+    @Option(names = {"--uc2-phone"}, description = "Phone number for UC-2 query (Phone + SSN + Account)")
+    private String uc2Phone;
+
+    @Option(names = {"--uc2-ssn-last4"}, description = "SSN last 4 digits for UC-2 query")
+    private String uc2SsnLast4;
+
+    @Option(names = {"--uc2-account-last4"}, description = "Account last 4 digits for UC-2 query")
+    private String uc2AccountLast4;
+
+    @Option(names = {"--uc4-account"}, description = "Account number for UC-4 query (Account + SSN)")
+    private String uc4Account;
+
+    @Option(names = {"--uc4-ssn-last4"}, description = "SSN last 4 digits for UC-4 query")
+    private String uc4SsnLast4;
+
+    @Option(names = {"--uc6-email"}, description = "Email for UC-6 query (Email + Account Last 4)")
+    private String uc6Email;
+
+    @Option(names = {"--uc6-account-last4"}, description = "Account last 4 digits for UC-6 query")
+    private String uc6AccountLast4;
+
+    @Option(names = {"--collection-prefix"}, description = "Collection/table name prefix for UC queries", defaultValue = "")
+    private String collectionPrefix;
+
     @Option(names = {"--benchmark"}, description = "Run benchmark mode with detailed metrics", defaultValue = "false")
     private boolean benchmarkMode;
 
@@ -151,6 +185,35 @@ public class HybridSearchCommand implements Callable<Integer> {
             hybridSearchService.setFuzzyEnabled(!disableFuzzy);
             hybridSearchService.setPhoneticEnabled(!disablePhonetic);
             hybridSearchService.setVectorEnabled(!disableVector);
+
+            // UC SQL Join query modes
+            if (ucBenchmark) {
+                SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
+                sqlJoinService.setCollectionPrefix(collectionPrefix);
+                return runUcBenchmark(sqlJoinService);
+            }
+
+            // Individual UC queries
+            if (uc1Phone != null && uc1SsnLast4 != null) {
+                SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
+                sqlJoinService.setCollectionPrefix(collectionPrefix);
+                return runUc1Query(sqlJoinService);
+            }
+            if (uc2Phone != null && uc2SsnLast4 != null && uc2AccountLast4 != null) {
+                SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
+                sqlJoinService.setCollectionPrefix(collectionPrefix);
+                return runUc2Query(sqlJoinService);
+            }
+            if (uc4Account != null && uc4SsnLast4 != null) {
+                SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
+                sqlJoinService.setCollectionPrefix(collectionPrefix);
+                return runUc4Query(sqlJoinService);
+            }
+            if (uc6Email != null && uc6AccountLast4 != null) {
+                SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
+                sqlJoinService.setCollectionPrefix(collectionPrefix);
+                return runUc6Query(sqlJoinService);
+            }
 
             if (benchmarkMode) {
                 return runBenchmark(hybridSearchService);
@@ -1085,6 +1148,327 @@ public class HybridSearchCommand implements Callable<Integer> {
 
         System.out.println();
         System.out.println("================================================================================");
+    }
+
+    // ---- UC SQL JOIN Query Methods ----
+
+    private int runUc1Query(SqlJoinSearchService service) {
+        if (!quiet) {
+            System.out.println("=== UC-1: Phone + SSN Last 4 (SQL JOIN) ===");
+            System.out.println("Phone: " + uc1Phone);
+            System.out.println("SSN Last 4: " + uc1SsnLast4);
+            System.out.println("Collection prefix: " + collectionPrefix);
+            System.out.println("Limit: " + limit);
+            System.out.println();
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<SqlJoinSearchResult> results = service.searchUC1(uc1Phone, uc1SsnLast4, limit);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        printUcResults("UC-1 (Phone + SSN Last 4)", results, elapsed);
+        return 0;
+    }
+
+    private int runUc2Query(SqlJoinSearchService service) {
+        if (!quiet) {
+            System.out.println("=== UC-2: Phone + SSN + Account (SQL JOIN) ===");
+            System.out.println("Phone: " + uc2Phone);
+            System.out.println("SSN Last 4: " + uc2SsnLast4);
+            System.out.println("Account Last 4: " + uc2AccountLast4);
+            System.out.println("Collection prefix: " + collectionPrefix);
+            System.out.println("Limit: " + limit);
+            System.out.println();
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<SqlJoinSearchResult> results = service.searchUC2(uc2Phone, uc2SsnLast4, uc2AccountLast4, limit);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        printUcResults("UC-2 (Phone + SSN + Account)", results, elapsed);
+        return 0;
+    }
+
+    private int runUc4Query(SqlJoinSearchService service) {
+        if (!quiet) {
+            System.out.println("=== UC-4: Account + SSN (SQL JOIN) ===");
+            System.out.println("Account: " + uc4Account);
+            System.out.println("SSN Last 4: " + uc4SsnLast4);
+            System.out.println("Collection prefix: " + collectionPrefix);
+            System.out.println("Limit: " + limit);
+            System.out.println();
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<SqlJoinSearchResult> results = service.searchUC4(uc4Account, uc4SsnLast4, limit);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        printUcResults("UC-4 (Account + SSN)", results, elapsed);
+        return 0;
+    }
+
+    private int runUc6Query(SqlJoinSearchService service) {
+        if (!quiet) {
+            System.out.println("=== UC-6: Email + Account Last 4 (SQL JOIN) ===");
+            System.out.println("Email: " + uc6Email);
+            System.out.println("Account Last 4: " + uc6AccountLast4);
+            System.out.println("Collection prefix: " + collectionPrefix);
+            System.out.println("Limit: " + limit);
+            System.out.println();
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<SqlJoinSearchResult> results = service.searchUC6(uc6Email, uc6AccountLast4, limit);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        printUcResults("UC-6 (Email + Account Last 4)", results, elapsed);
+        return 0;
+    }
+
+    private void printUcResults(String queryType, List<SqlJoinSearchResult> results, long elapsedMs) {
+        System.out.println("Results for " + queryType + ":");
+        System.out.println("  Found: " + results.size() + " results");
+        System.out.println("  Time: " + elapsedMs + "ms");
+        System.out.println();
+
+        if (results.isEmpty()) {
+            System.out.println("  (No results found)");
+        } else {
+            System.out.println("  Customer Number     | Full Name                        | Phone          | SSN Last4 | Account");
+            System.out.println("  --------------------|----------------------------------|----------------|-----------|----------");
+            for (SqlJoinSearchResult result : results) {
+                String fullName = result.getFullName() != null ? result.getFullName() : "";
+                if (fullName.length() > 30) {
+                    fullName = fullName.substring(0, 27) + "...";
+                }
+                String phone = result.getPhoneNumber() != null ? result.getPhoneNumber() : "";
+                String ssnLast4 = result.getSsnLast4() != null ? result.getSsnLast4() : "";
+                String account = result.getAccountNumber() != null ? result.getAccountNumber() :
+                    (result.getAccountNumberLast4() != null ? "****" + result.getAccountNumberLast4() : "");
+
+                System.out.printf("  %-18s | %-32s | %-14s | %-9s | %s%n",
+                    result.getCustomerNumber(),
+                    fullName,
+                    phone,
+                    ssnLast4,
+                    account);
+            }
+        }
+        System.out.println();
+    }
+
+    /**
+     * Run UC SQL JOIN query benchmark with detailed metrics.
+     * Tests all UC scenarios (UC-1, UC-2, UC-4, UC-6) with data-driven parameter generation.
+     */
+    private int runUcBenchmark(SqlJoinSearchService service) {
+        System.out.println("================================================================================");
+        System.out.println("                    UC SQL JOIN QUERY BENCHMARK");
+        System.out.println("================================================================================");
+        System.out.println();
+        System.out.println("Configuration:");
+        System.out.println("  Collection prefix:  " + collectionPrefix);
+        System.out.println("  Iterations:         " + iterations);
+        System.out.println("  Warmup iterations:  " + warmupIterations);
+        System.out.println("  Result limit:       " + limit);
+        System.out.println();
+
+        List<BenchmarkResult> results = new ArrayList<>();
+
+        // Load sample data for UC queries from database
+        System.out.println("Loading sample data from database for UC queries...");
+        String[][] ucParams = sampleDataLoader.getUcQueryParametersArray(20);
+        System.out.println("  Loaded " + ucParams.length + " sample parameter sets");
+        System.out.println();
+
+        // UC-1: Phone + SSN Last 4
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc1_phone_ssn_last4_sql");
+        System.out.println("Description: UC-1 SQL JOIN: Phone + SSN Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc1Result = runUc1Benchmark(service, ucParams);
+        results.add(uc1Result);
+        printBenchmarkResult(uc1Result);
+
+        // UC-2: Phone + SSN + Account
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc2_phone_ssn_account_sql");
+        System.out.println("Description: UC-2 SQL JOIN: Phone + SSN + Account (3-way)");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc2Result = runUc2Benchmark(service, ucParams);
+        results.add(uc2Result);
+        printBenchmarkResult(uc2Result);
+
+        // UC-4: Account + SSN
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc4_account_ssn_sql");
+        System.out.println("Description: UC-4 SQL JOIN: Account + SSN");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc4Result = runUc4Benchmark(service, ucParams);
+        results.add(uc4Result);
+        printBenchmarkResult(uc4Result);
+
+        // UC-6: Email + Account Last 4
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc6_email_account_sql");
+        System.out.println("Description: UC-6 SQL JOIN: Email + Account Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc6Result = runUc6Benchmark(service, ucParams);
+        results.add(uc6Result);
+        printBenchmarkResult(uc6Result);
+
+        // Print summary
+        printBenchmarkSummary(results);
+
+        return 0;
+    }
+
+    private BenchmarkResult runUc1Benchmark(SqlJoinSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                // params: [phone, ssnLast4, accountLast4, email, accountNumber]
+                service.searchUC1(p[0], p[1], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<SqlJoinSearchResult> results = service.searchUC1(p[0], p[1], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc1_sql_join", "UC-1 SQL JOIN: Phone + SSN Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc2Benchmark(SqlJoinSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                // params: [phone, ssnLast4, accountLast4, email, accountNumber]
+                service.searchUC2(p[0], p[1], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<SqlJoinSearchResult> results = service.searchUC2(p[0], p[1], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc2_sql_join", "UC-2 SQL JOIN: Phone + SSN + Account",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc4Benchmark(SqlJoinSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                // params: [phone, ssnLast4, accountLast4, email, accountNumber]
+                service.searchUC4(p[4], p[1], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<SqlJoinSearchResult> results = service.searchUC4(p[4], p[1], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc4_sql_join", "UC-4 SQL JOIN: Account + SSN",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc6Benchmark(SqlJoinSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                // params: [phone, ssnLast4, accountLast4, email, accountNumber]
+                service.searchUC6(p[3], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<SqlJoinSearchResult> results = service.searchUC6(p[3], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc6_sql_join", "UC-6 SQL JOIN: Email + Account Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
     }
 
     /**

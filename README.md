@@ -11,6 +11,7 @@ A Java CLI tool for benchmarking the MongoDB API for Oracle Database. Load test 
   - **Phonetic Search** - SOUNDEX matching for names that sound alike
   - **Fuzzy Search** - Oracle Text for typo-tolerant matching
   - **Vector Search** - Semantic similarity using Oracle AI Vector Search
+  - **UC SQL JOIN Queries** - Multi-collection joins via native SQL with json_value()
 - **Multiple Output Formats** - Console, CSV, and JSON output for integration with analysis tools
 - **Tunable Parameters** - Thread count, batch size, connection pool size, and more
 - **Parameterized Queries** - Support for multiple parameter generation strategies:
@@ -267,6 +268,26 @@ The MongoDB API for Oracle supports only B-tree indexes. For advanced search fea
 | **Phonetic** | SOUNDEX matching for similar-sounding names (Smith/Smyth, John/Jon) | Works immediately |
 | **Fuzzy** | Typo-tolerant matching using Oracle Text | Requires Oracle Text index |
 | **Vector** | Semantic similarity search | Requires ONNX model + embedding column |
+| **UC SQL JOIN** | Multi-collection JOIN queries via native SQL | Works immediately with JDBC |
+
+### UC SQL JOIN Queries
+
+The `hybrid-search` command includes SQL JOIN implementations for UC (Use Case) queries that span multiple collections. This approach uses Oracle's native SQL JOIN with `json_value()` functions instead of sequential MongoDB find() operations.
+
+```bash
+# Run UC SQL JOIN benchmark
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --collection-prefix "bench_" \
+  --uc-benchmark -i 100 -w 10
+
+# Run individual UC queries
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --uc1-phone "5551234567" --uc1-ssn-last4 "6789"
+```
+
+Supported UC queries: UC-1, UC-2, UC-4, UC-6 (see `results/BENCHMARK_SUMMARY.md` for SQL definitions).
 
 ### Running Integration Tests
 
@@ -389,9 +410,11 @@ wf_bench/
     │   │   ├── FuzzySearchService.java    # Oracle Text fuzzy search
     │   │   ├── PhoneticSearchService.java # SOUNDEX phonetic matching
     │   │   ├── VectorSearchService.java   # Oracle AI Vector Search
-    │   │   └── HybridSearchService.java   # Combined search strategies
+    │   │   ├── HybridSearchService.java   # Combined search strategies
+    │   │   ├── SqlJoinSearchService.java  # UC SQL JOIN queries
+    │   │   └── SampleDataLoader.java      # UC parameter loading
     │   └── report/                # Output formatting
-    └── test/java/                 # Unit tests (151 tests)
+    └── test/java/                 # Unit tests (172 tests)
 ```
 
 ## Development
