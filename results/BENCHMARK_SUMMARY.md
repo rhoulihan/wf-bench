@@ -29,8 +29,8 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 | Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|------------------------|----------|----------|------------|------|
-| **fuzzy_name_search** | **Fuzzy text search** | `JSON_TEXTCONTAINS(DATA, '$.common.fullName', ?)` | **2.81** | **3.08** | **356.3/s** | 0 |
-| **fuzzy_business_search** | **Fuzzy business name** | `JSON_TEXTCONTAINS(DATA, '$.business.businessName', ?)` | **3.53** | **4.50** | **283.4/s** | 0 |
+| **fuzzy_name_search** | **Fuzzy text search** | `CONTAINS(DATA, 'fuzzy(name)', 1) > 0` | **4.47** | **9.11** | **223.9/s** | 1.2 |
+| **fuzzy_business_search** | **Fuzzy business name** | `CONTAINS(DATA, 'fuzzy(name)', 1) > 0` | **6.04** | **9.28** | **165.5/s** | 0.4 |
 | os2_account_full_search | Full account number | `db.account.find({accountKey.accountNumber: ?})` | 5.75 | 30.59 | 174.0/s | 1 |
 | os3_account_tokenized_search | Tokenized account | `db.account.find({accountKey.accountNumberTokenized: ?})` | 5.58 | 30.32 | 179.1/s | 1 |
 | account_by_customer | Accounts for customer | `db.account.find({accountHolders.customerNumber: ?})` | 6.01 | 34.40 | 166.3/s | 2.7 |
@@ -47,11 +47,11 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 | Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|------------------------|----------|----------|------------|------|
 | os1_tin_full_search | Full 9-digit TIN/SSN | `db.identity.find({common.taxIdentificationNumber: ?})` | 10.26 | 72.77 | 97.5/s | 1 |
-| **phonetic_name_search** | **Phonetic (SOUNDEX)** | `SELECT ... WHERE SOUNDEX(?) = SOUNDEX(full_name)` | **10.31** | **14.55** | **97.0/s** | 0.4 |
+| **phonetic_name_search** | **Phonetic (SOUNDEX)** | `SELECT ... WHERE SOUNDEX(?) = SOUNDEX(full_name)` | **7.44** | **7.71** | **134.4/s** | 1.2 |
 | wr_g_entity_type_filter | Entity type filter | `db.identity.find({common.entityTypeIndicator: ?})` | 10.65 | 12.55 | 93.9/s | 100 |
 | wr_c_zip_only | ZIP code only | `db.address.find({addresses.postalCode: ?})` | 13.00 | 85.76 | 76.9/s | 23.8 |
 | wr_f_dob_with_name | DOB + name (correlated) | `db.identity.find({individual.birthDate: ?, common.fullName: ?})` | 13.70 | 103.68 | 73.0/s | 3.8 |
-| **hybrid_name_search** | **Combined phonetic + fuzzy** | SOUNDEX + JSON_TEXTCONTAINS | **13.92** | **22.46** | **71.8/s** | 0.4 |
+| **hybrid_name_search** | **Combined phonetic + fuzzy** | SOUNDEX + CONTAINS/FUZZY | **12.28** | **13.45** | **81.5/s** | 1.4 |
 | wr_q_tin_last4_with_name | TIN last 4 + name (correlated) | `db.identity.find({common.taxIdentificationNumberLast4: ?, common.fullName: ?})` | 14.30 | 82.88 | 69.9/s | 1 |
 | wr_h_full_name_search | First/Last name (correlated) | `db.identity.find({individual.lastName: ?, individual.firstName: ?})` | 15.74 | 102.02 | 63.5/s | 4.8 |
 | uc4_ssn_last4_search | SSN last 4 digits | `db.identity.find({common.taxIdentificationNumberLast4: ?})` | 18.10 | 19.97 | 55.2/s | 95.9 |
