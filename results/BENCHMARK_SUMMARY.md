@@ -213,7 +213,7 @@ The join execution logic is implemented in `QueryRunner.java`:
 
 ### MongoDB Commands Executed
 
-Each UC query executes multiple MongoDB find() operations. Here are the actual commands:
+**Note:** The MongoDB API for Oracle does not support `$lookup` aggregation, so multi-collection joins are implemented as multiple sequential `find()` operations executed by the application. Each UC query executes multiple MongoDB find() operations:
 
 **UC-1: Phone + SSN Last 4 (2-way join)**
 ```javascript
@@ -286,6 +286,55 @@ db.account.find({"accountHolders.customerNumber": 1000000001, "accountKey.accoun
 - `QueryDefinitionWithJoinTests`: Query with join parsing
 - `UC1-UC7 Tests`: Each use case has dedicated tests
 - `YamlParsingTests`: YAML parsing of join definitions
+
+### Alternative: SQL Join Queries
+
+For better performance, the UC join queries could also be implemented as single SQL statements using Oracle's native JSON functions and JOIN operations. This avoids multiple round-trips to the database:
+
+**UC-1: Phone + SSN Last 4 (SQL equivalent)**
+```sql
+SELECT p.DATA, i.DATA
+FROM phone p
+JOIN identity i ON json_value(p.DATA, '$.phoneKey.customerNumber') =
+                   json_value(i.DATA, '$._id.customerNumber')
+WHERE json_value(p.DATA, '$.phoneKey.phoneNumber') = ?
+  AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
+```
+
+**UC-2: Phone + SSN + Account (SQL equivalent)**
+```sql
+SELECT p.DATA, i.DATA, a.DATA
+FROM phone p
+JOIN identity i ON json_value(p.DATA, '$.phoneKey.customerNumber') =
+                   json_value(i.DATA, '$._id.customerNumber')
+JOIN account a ON json_value(i.DATA, '$._id.customerNumber') =
+                  json_value(a.DATA, '$.accountHolders[*].customerNumber')
+WHERE json_value(p.DATA, '$.phoneKey.phoneNumber') = ?
+  AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
+  AND json_value(a.DATA, '$.accountKey.accountNumberLast4') = ?
+```
+
+**UC-4: Account + SSN (SQL equivalent)**
+```sql
+SELECT a.DATA, i.DATA
+FROM account a
+JOIN identity i ON json_value(a.DATA, '$.accountHolders[0].customerNumber') =
+                   json_value(i.DATA, '$._id.customerNumber')
+WHERE json_value(a.DATA, '$.accountKey.accountNumber') = ?
+  AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
+```
+
+**UC-6: Email + Account Last 4 (SQL equivalent)**
+```sql
+SELECT i.DATA, a.DATA
+FROM identity i
+JOIN account a ON json_value(i.DATA, '$._id.customerNumber') =
+                  json_value(a.DATA, '$.accountHolders[*].customerNumber')
+WHERE json_value(i.DATA, '$.emails[*].emailAddress') = ?
+  AND json_value(a.DATA, '$.accountKey.accountNumberLast4') = ?
+```
+
+**Note:** These SQL queries leverage Oracle's query optimizer for join planning and can execute in a single database round-trip. The current MongoDB API implementation uses sequential find() operations which may have higher latency for complex joins but works with any MongoDB-compatible driver.
 
 ---
 
@@ -483,6 +532,85 @@ When a search strategy is unavailable, the hybrid search service:
 2. Falls back to remaining available strategies (e.g., phonetic SOUNDEX)
 3. Returns results from available strategies with combined scoring
 
+### Full SQL Queries for Hybrid Search
+
+The hybrid search feature uses Oracle SQL/JDBC to access capabilities not available through the MongoDB API.
+
+#### Phonetic Search (SOUNDEX)
+
+Matches names that sound similar even with different spellings (Smith/Smyth, John/Jon, Catherine/Katherine):
+
+```sql
+-- Basic phonetic name search
+SELECT
+    json_value(DATA, '$._id.customerNumber') as customer_number,
+    json_value(DATA, '$.common.fullName') as full_name,
+    SOUNDEX(json_value(DATA, '$.individual.firstName')) || '-' ||
+    SOUNDEX(json_value(DATA, '$.individual.lastName')) as soundex_code
+FROM identity
+WHERE SOUNDEX(json_value(DATA, '$.individual.firstName')) = SOUNDEX(?)
+  AND SOUNDEX(json_value(DATA, '$.individual.lastName')) = SOUNDEX(?)
+ORDER BY json_value(DATA, '$.common.fullName')
+FETCH FIRST ? ROWS ONLY
+```
+
+**Example:** Searching for "Jon Smyth" matches "John Smith", "Jon Smith", "John Smythe", etc.
+
+#### Phonetic Search with Nickname Expansion
+
+Expands search to include common nicknames (Bill/William, Bob/Robert, Peggy/Margaret):
+
+```sql
+-- Phonetic search with nickname variants
+SELECT
+    json_value(DATA, '$._id.customerNumber') as customer_number,
+    json_value(DATA, '$.common.fullName') as full_name,
+    SOUNDEX(json_value(DATA, '$.individual.firstName')) || '-' ||
+    SOUNDEX(json_value(DATA, '$.individual.lastName')) as soundex_code
+FROM identity
+WHERE SOUNDEX(json_value(DATA, '$.individual.firstName')) IN (SOUNDEX(?), SOUNDEX(?), SOUNDEX(?))
+  AND SOUNDEX(json_value(DATA, '$.individual.lastName')) = SOUNDEX(?)
+ORDER BY json_value(DATA, '$.common.fullName')
+FETCH FIRST ? ROWS ONLY
+```
+
+**Example:** Searching for "Bill Smith" also matches "William Smith", "Will Smith", "Billy Smith".
+
+#### Fuzzy Text Search (CONTAINS with FUZZY operator)
+
+Provides typo-tolerant matching using Oracle Text's FUZZY operator:
+
+```sql
+-- Fuzzy name search (typo-tolerant)
+SELECT
+    json_value(DATA, '$._id.customerNumber') as customer_number,
+    json_value(DATA, '$.common.fullName') as full_name,
+    SCORE(1) as score
+FROM identity
+WHERE CONTAINS(DATA, 'fuzzy(JOHN) AND fuzzy(SMITH)', 1) > 0
+ORDER BY SCORE(1) DESC
+FETCH FIRST ? ROWS ONLY
+```
+
+**Note:** Multi-word searches use `fuzzy(word1) AND fuzzy(word2)` syntax. Oracle Text reserved words (AND, OR, NOT, FUZZY, etc.) are automatically filtered.
+
+#### Fuzzy Business Name Search
+
+Fuzzy search filtered to business entities only:
+
+```sql
+-- Fuzzy business name search
+SELECT
+    json_value(DATA, '$._id.customerNumber') as customer_number,
+    json_value(DATA, '$.common.fullName') as business_name,
+    SCORE(1) as score
+FROM identity
+WHERE CONTAINS(DATA, 'fuzzy(ACME) AND fuzzy(CORP)', 1) > 0
+  AND json_value(DATA, '$.common.entityTypeIndicator') = 'NON_INDIVIDUAL'
+ORDER BY SCORE(1) DESC
+FETCH FIRST ? ROWS ONLY
+```
+
 ### Enabling Fuzzy Text Search
 
 Create a JSON Search Index on the identity collection:
@@ -496,7 +624,7 @@ java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
 CREATE SEARCH INDEX idx_identity_data_text ON identity(DATA) FOR JSON;
 ```
 
-This enables `JSON_TEXTCONTAINS()` for full-text search within JSON documents.
+This enables `CONTAINS()` with FUZZY operator for typo-tolerant full-text search within JSON documents.
 
 ### Enabling Vector Search
 
