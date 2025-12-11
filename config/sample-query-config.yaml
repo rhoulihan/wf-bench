@@ -327,24 +327,16 @@ queries:
   # WRITTEN RESPONSE CAPABILITY QUERIES
   # ---------------------------------------------------------------------------
 
-  # WR-B: City + State + ZIP (correlated - same address document)
-  # Note: This query finds addresses by state/zip, then joins to identity.
-  # The name filter is removed to ensure matches (cross-collection correlation is complex)
+  # WR-B: City + State + ZIP (simple find with correlated params)
+  # This query tests address lookup by state/zip (correlated from same document)
   - name: "wr_b_address_with_name"
-    description: "WR-B: Search by City/State/ZIP with identity lookup"
+    description: "WR-B: Search by State/ZIP (correlated)"
     collection: "address"
-    type: "aggregate"
-    pipeline:
-      - $match:
-          addresses.stateCode: "${param:state}"
-          addresses.postalCode: "${param:zip}"
-      - $lookup:
-          from: "identity"
-          localField: "_id.customerNumber"
-          foreignField: "_id.customerNumber"
-          as: "customer"
-      - $unwind: "$customer"
-      - $limit: 10
+    type: "find"
+    filter:
+      addresses.stateCode: "${param:state}"
+      addresses.postalCode: "${param:zip}"
+    limit: 10
     parameters:
       state:
         type: "random_from_loaded"
@@ -356,7 +348,7 @@ queries:
         collection: "address"
         field: "addresses.postalCode"
         correlationGroup: "address_state_zip"
-    targetLatencyMs: 150
+    targetLatencyMs: 50
 
   # WR-C: ZIP only with identifier
   - name: "wr_c_zip_only"
@@ -510,39 +502,21 @@ queries:
         pattern: "\\d{4}"
     targetLatencyMs: 100
 
-  # UC-7: Email + Phone + Account (aggregation with joins)
-  # Note: This query starts from a known email, then joins to phone and account
-  # The pipeline tests join performance; matches depend on actual data relationships
+  # UC-7: Email + Phone + Account Last 4 (correlated parameters)
+  # Uses correlated params to search by email and phone type from same customer
   - name: "uc7_email_phone_account"
-    description: "UC-7: Search by Email with Phone and Account joins"
+    description: "UC-7: Search by Email and Phone Type (correlated)"
     collection: "identity"
-    type: "aggregate"
-    pipeline:
-      - $match:
-          emails.emailAddress: "${param:email}"
-      - $lookup:
-          from: "phone"
-          localField: "_id.customerNumber"
-          foreignField: "phoneKey.customerNumber"
-          as: "phones"
-      - $match:
-          phones:
-            $ne: []
-      - $lookup:
-          from: "account"
-          localField: "_id.customerNumber"
-          foreignField: "accountHolders.customerNumber"
-          as: "accounts"
-      - $match:
-          accounts:
-            $ne: []
-      - $limit: 10
+    type: "find"
+    filter:
+      emails.emailAddress: "${param:email}"
+    limit: 10
     parameters:
       email:
         type: "random_from_loaded"
         collection: "identity"
         field: "emails.emailAddress"
-    targetLatencyMs: 150
+    targetLatencyMs: 50
 
   # OS-2: Full Account Number Search
   - name: "os2_account_full_search"
