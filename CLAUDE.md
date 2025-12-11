@@ -212,15 +212,13 @@ Date: 2025-12-11 | Server: Phoenix (129.213.29.234) | Database: Oracle ADB
 
 | Search Type | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Throughput | Avg Docs |
 |-------------|----------|----------|----------|----------|------------|----------|
-| phonetic_name_search | 10.95 | 10.44 | 14.61 | 14.61 | 91.3/s | 1.2 |
-| fuzzy_name_search | 4.77 | 4.25 | 8.98 | 8.98 | 209.6/s | 1.2 |
-| hybrid_name_search | 17.16 | 17.10 | 18.40 | 18.40 | 58.3/s | 1.4 |
-| fuzzy_business_search | 5.81* | 5.77 | 6.20 | 6.20 | 172.0/s | 0.0* |
-
-*\*Business name fuzzy search returns 0 docs due to DRG-50901 syntax errors from special characters in business names (asterisks, hyphens). Needs sanitization improvement.*
+| phonetic_name_search | 7.44 | 7.34 | 7.71 | 7.71 | 134.4/s | 1.2 |
+| fuzzy_name_search | 4.47 | 3.91 | 9.11 | 9.11 | 223.9/s | 1.2 |
+| hybrid_name_search | 12.28 | 12.16 | 13.45 | 13.45 | 81.5/s | 1.4 |
+| fuzzy_business_search | 6.04 | 5.64 | 9.28 | 9.28 | 165.5/s | 0.4 |
 
 **Key Findings:**
-- Fuzzy name search is fastest (4.77ms avg, ~210 ops/sec)
-- Phonetic search is slower but finds phonetic matches (~11ms avg)
-- Hybrid search combines both strategies (~17ms avg, returns 1.4 docs on average)
-- Business name search fails on names with special characters (requires fix)
+- Fuzzy name search is fastest (4.47ms avg, ~224 ops/sec)
+- Phonetic search uses SOUNDEX for sound-alike matching (~7.4ms avg)
+- Hybrid search combines both strategies (~12ms avg, returns 1.4 docs on average)
+- Business name search returns 0.4 docs avg (some business names only contain reserved words)
