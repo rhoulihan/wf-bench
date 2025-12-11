@@ -513,7 +513,7 @@ public class HybridSearchCommand implements Callable<Integer> {
         String indexName = "idx_" + collection + "_data_text";
 
         System.out.println("========================================");
-        System.out.println("  CREATE ORACLE TEXT INDEX");
+        System.out.println("  CREATE JSON SEARCH INDEX");
         System.out.println("========================================");
         System.out.println();
         System.out.println("Collection: " + collection);
@@ -538,16 +538,16 @@ public class HybridSearchCommand implements Callable<Integer> {
                 System.out.println();
             }
 
-            // Create the Oracle Text index
-            System.out.println((dropTextIndex ? "[2/2]" : "[1/1]") + " Creating Oracle Text index...");
+            // Create the JSON Search Index
+            // For Oracle 23ai/AJD with native JSON columns, use JSON Search Index
+            // This enables full-text search with JSON_TEXTCONTAINS()
+            System.out.println((dropTextIndex ? "[2/2]" : "[1/1]") + " Creating JSON Search Index...");
             System.out.println();
 
-            // Oracle Text CONTEXT index on the DATA column (JSON CLOB)
-            // SYNC (ON COMMIT) ensures index is updated when data changes
+            // JSON Search Index for full-text search on JSON data
+            // Supports JSON_TEXTCONTAINS() for fuzzy/text search operations
             String createSql = String.format(
-                "CREATE INDEX %s ON %s(DATA) " +
-                "INDEXTYPE IS CTXSYS.CONTEXT " +
-                "PARAMETERS ('SYNC (ON COMMIT)')",
+                "CREATE SEARCH INDEX %s ON %s(DATA) FOR JSON",
                 indexName, collection);
 
             System.out.println("  SQL: " + createSql);
@@ -563,15 +563,15 @@ public class HybridSearchCommand implements Callable<Integer> {
             System.out.println("  Time: " + elapsed + "ms");
             System.out.println();
             System.out.println("========================================");
-            System.out.println("  Oracle Text index is now available.");
-            System.out.println("  Fuzzy search with CONTAINS() enabled.");
+            System.out.println("  JSON Search Index is now available.");
+            System.out.println("  Use JSON_TEXTCONTAINS() for text search.");
             System.out.println("========================================");
 
             return 0;
 
         } catch (SQLException e) {
             System.err.println();
-            System.err.println("ERROR: Failed to create Oracle Text index");
+            System.err.println("ERROR: Failed to create JSON Search Index");
             System.err.println("  SQL Error Code: " + e.getErrorCode());
             System.err.println("  Message: " + e.getMessage());
             System.err.println();
@@ -579,8 +579,8 @@ public class HybridSearchCommand implements Callable<Integer> {
             if (e.getErrorCode() == 955) { // ORA-00955: name is already used
                 System.err.println("  The index already exists. Use --drop-text-index to drop and recreate.");
             } else if (e.getErrorCode() == 29855) { // ORA-29855: error in executing ODCIIndexCreate
-                System.err.println("  Oracle Text may not be properly configured.");
-                System.err.println("  Verify CTXSYS schema and privileges are available.");
+                System.err.println("  JSON Search Index creation failed.");
+                System.err.println("  This feature requires Oracle 23ai or later.");
             }
 
             e.printStackTrace();
