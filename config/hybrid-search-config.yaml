@@ -297,6 +297,18 @@ indexes:
       phoneKey.phoneNumber: 1
 
 # =============================================================================
+# ORACLE TEXT SEARCH INDEX (for fuzzy search)
+# =============================================================================
+# JSON Search Index for JSON_TEXTCONTAINS() queries
+# Created automatically via --create-text-index or --setup-all-indexes
+
+textSearchIndexes:
+  - collection: "identity"
+    name: "idx_identity_data_text"
+    type: "json_search"
+    # SQL: CREATE SEARCH INDEX idx_identity_data_text ON identity(DATA) FOR JSON
+
+# =============================================================================
 # SQL INDEX CREATION SCRIPTS
 # =============================================================================
 # These must be run via SQL to enable hybrid search features
