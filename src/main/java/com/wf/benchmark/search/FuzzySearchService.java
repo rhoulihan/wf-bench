@@ -55,8 +55,15 @@ public class FuzzySearchService {
     public List<FuzzySearchResult> searchByName(String searchTerm, String collection, int limit) {
         validateSearchParams(searchTerm, collection);
 
-        String sql = buildNameSearchQuery(collection, limit);
         String fuzzyTerm = buildFuzzySearchTerm(searchTerm);
+
+        // Handle case where sanitization results in empty term
+        if (fuzzyTerm == null) {
+            log.warn("Name search term '{}' sanitized to empty, returning empty results", searchTerm);
+            return new ArrayList<>();
+        }
+
+        String sql = buildNameSearchQuery(collection, limit);
 
         log.debug("Executing fuzzy search for name: term='{}', fuzzyTerm='{}', collection='{}', limit={}",
                   searchTerm, fuzzyTerm, collection, limit);
@@ -76,8 +83,15 @@ public class FuzzySearchService {
     public List<FuzzySearchResult> searchByBusinessName(String searchTerm, String collection, int limit) {
         validateSearchParams(searchTerm, collection);
 
-        String sql = buildBusinessNameSearchQuery(collection, limit);
         String fuzzyTerm = buildFuzzySearchTerm(searchTerm);
+
+        // Handle case where sanitization results in empty term
+        if (fuzzyTerm == null) {
+            log.warn("Business name search term '{}' sanitized to empty, returning empty results", searchTerm);
+            return new ArrayList<>();
+        }
+
+        String sql = buildBusinessNameSearchQuery(collection, limit);
 
         log.debug("Executing fuzzy search for business name: term='{}', fuzzyTerm='{}', collection='{}', limit={}",
                   searchTerm, fuzzyTerm, collection, limit);
