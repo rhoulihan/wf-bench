@@ -232,15 +232,31 @@ The MongoDB API for Oracle supports only B-tree indexes. Advanced search feature
 | SOUNDEX phonetic matching | Not supported | Oracle SOUNDEX function |
 | Fuzzy/typo-tolerant search | Not supported | Oracle Text fuzzy operators |
 
-### Hybrid Search Test Results
+### Hybrid Search Performance Results
 
-Integration tests against live Oracle ADB demonstrate:
+Integration tests against live Oracle ADB (1M identity documents):
+
+| Search Type | Status | Latency | Throughput | Notes |
+|-------------|--------|---------|------------|-------|
+| **Phonetic (SOUNDEX)** | Working | 280ms | ~3.6/sec | Full table scan, no index required |
+| **Fuzzy (Oracle Text)** | Pending Index | - | - | Requires `CTXSYS.CONTEXT` index |
+| **Vector (AI Search)** | Pending Setup | - | - | Requires ONNX model + embedding column |
+
+#### Phonetic Search Example
 
 ```
+Search completed in 280ms with 1 results
 Phonetic search results (1 found):
   HybridSearchResult{customerNumber='1000008534', matchedValue='NORRIS EDMOND ALTENWERTH',
                      score=0.8, matchStrategies=[PHONETIC]}
 ```
+
+#### Hybrid Search Graceful Degradation
+
+When fuzzy search is unavailable (no Oracle Text index), the hybrid search service:
+1. Logs a warning: `Fuzzy search failed, continuing with other strategies`
+2. Falls back to phonetic (SOUNDEX) search
+3. Returns results from available strategies with combined scoring
 
 ### Enabling Fuzzy Text Search
 
