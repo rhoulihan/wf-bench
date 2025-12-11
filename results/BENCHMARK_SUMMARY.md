@@ -14,12 +14,12 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 | Metric | Value |
 |--------|-------|
-| Total Queries | 26 |
-| Queries Passed | 25 (96%) |
-| Queries Failed | 1 (baseline_pk_lookup - compound _id extraction issue) |
+| MongoDB API Queries | 26 (25 passed, 1 failed) |
+| Hybrid Search Queries | 5 (4 working, 1 pending vector setup) |
 | Indexes Created | 20 |
 | Concurrent Threads | 12 |
-| Iterations per Query | 10 (+ 3 warmup) |
+| MongoDB API Iterations | 10 (+ 3 warmup) |
+| Hybrid Search Iterations | 100 (+ 10 warmup) |
 
 ---
 
@@ -29,6 +29,8 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 | Query | Description | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|----------|----------|------------|------|
+| **fuzzy_name_search** | **Fuzzy text (JSON_TEXTCONTAINS)** | **2.81** | **3.08** | **356.3/s** | **0** |
+| **fuzzy_business_search** | **Fuzzy business name** | **3.53** | **4.50** | **283.4/s** | **0** |
 | os2_account_full_search | Full account number | 4.58 | 23.89 | 218.5/s | 1 |
 | os3_account_tokenized_search | Tokenized account | 5.29 | 22.88 | 188.9/s | 1 |
 | os4_phone_full_search | Full phone number | 5.68 | 34.59 | 176.2/s | 1 |
@@ -46,9 +48,11 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 | Query | Description | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|----------|----------|------------|------|
 | wr_h_full_name_search | First/Last name (correlated) | 10.12 | 73.86 | 98.8/s | 1.5 |
+| **phonetic_name_search** | **Phonetic (SOUNDEX) name** | **10.31** | **14.55** | **97.0/s** | **0.4** |
 | wr_f_dob_with_name | DOB + name (correlated) | 11.57 | 91.46 | 86.4/s | 1.9 |
 | wr_c_zip_only | ZIP code only | 12.33 | 86.85 | 81.1/s | 20.3 |
 | wr_q_tin_last4_with_name | TIN last 4 + name (correlated) | 13.62 | 80.51 | 73.4/s | 1 |
+| **hybrid_name_search** | **Combined phonetic + fuzzy** | **13.92** | **22.46** | **71.8/s** | **0.4** |
 | uc4_ssn_last4_search | SSN last 4 digits | 18.27 | 21.62 | 54.7/s | 98.7 |
 | account_by_customer | Accounts for customer | 25.30 | 205.57 | 39.5/s | 2.8 |
 
