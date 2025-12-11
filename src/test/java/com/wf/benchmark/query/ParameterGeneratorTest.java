@@ -273,6 +273,89 @@ class ParameterGeneratorTest {
     }
 
     @Nested
+    class ArrayFieldExtractionTests {
+
+        @Test
+        void shouldExtractFromSimpleArrayField() {
+            // Create a document with an array field
+            Document doc = new Document("addresses",
+                List.of(
+                    new Document("postalCode", "12345"),
+                    new Document("postalCode", "67890")
+                )
+            );
+
+            ParameterGenerator generator = new ParameterGenerator(new HashMap<>());
+
+            // Use reflection to test the private extractNestedValue method
+            List<Object> values = generator.extractAllNestedValues(doc, "addresses.postalCode");
+
+            assertThat(values).containsExactlyInAnyOrder("12345", "67890");
+        }
+
+        @Test
+        void shouldExtractFromDeeplyNestedArrayField() {
+            // Create a document with nested structure: common.identifications[].documentNumber
+            Document doc = new Document("common",
+                new Document("identifications",
+                    List.of(
+                        new Document("documentNumber", "DL12345"),
+                        new Document("documentNumber", "PP67890")
+                    )
+                )
+            );
+
+            ParameterGenerator generator = new ParameterGenerator(new HashMap<>());
+
+            List<Object> values = generator.extractAllNestedValues(doc, "common.identifications.documentNumber");
+
+            assertThat(values).containsExactlyInAnyOrder("DL12345", "PP67890");
+        }
+
+        @Test
+        void shouldHandleEmptyArray() {
+            Document doc = new Document("addresses", List.of());
+
+            ParameterGenerator generator = new ParameterGenerator(new HashMap<>());
+
+            List<Object> values = generator.extractAllNestedValues(doc, "addresses.postalCode");
+
+            assertThat(values).isEmpty();
+        }
+
+        @Test
+        void shouldHandleMixedNullAndNonNullValuesInArray() {
+            Document doc = new Document("addresses",
+                List.of(
+                    new Document("postalCode", "12345"),
+                    new Document("cityName", "NoZipCity"), // No postalCode field
+                    new Document("postalCode", "67890")
+                )
+            );
+
+            ParameterGenerator generator = new ParameterGenerator(new HashMap<>());
+
+            List<Object> values = generator.extractAllNestedValues(doc, "addresses.postalCode");
+
+            assertThat(values).containsExactlyInAnyOrder("12345", "67890");
+        }
+
+        @Test
+        void shouldExtractFromNonArrayNestedField() {
+            // Should still work for non-array nested fields
+            Document doc = new Document("phoneKey",
+                new Document("phoneNumber", "555-1234")
+            );
+
+            ParameterGenerator generator = new ParameterGenerator(new HashMap<>());
+
+            List<Object> values = generator.extractAllNestedValues(doc, "phoneKey.phoneNumber");
+
+            assertThat(values).containsExactly("555-1234");
+        }
+    }
+
+    @Nested
     class RandomFromLoadedTests {
 
         @BeforeEach

@@ -277,10 +277,9 @@ public class ParameterGenerator {
 
             while (cursor.hasNext()) {
                 Document doc = cursor.next();
-                Object value = extractNestedValue(doc, fieldPath);
-                if (value != null) {
-                    values.add(value);
-                }
+                // Use extractAllNestedValues to handle array fields
+                List<Object> extractedValues = extractAllNestedValues(doc, fieldPath);
+                values.addAll(extractedValues);
             }
         }
 
@@ -290,6 +289,7 @@ public class ParameterGenerator {
 
     /**
      * Extract a value from a nested field path like "phoneKey.phoneNumber".
+     * Does not handle arrays - use extractAllNestedValues for array support.
      */
     private Object extractNestedValue(Document doc, String fieldPath) {
         String[] parts = fieldPath.split("\\.");
@@ -307,6 +307,58 @@ public class ParameterGenerator {
         }
 
         return current;
+    }
+
+    /**
+     * Extract all values from a nested field path, supporting arrays.
+     * For paths like "addresses.postalCode" where "addresses" is an array,
+     * this will extract postalCode from each element in the array.
+     *
+     * @param doc The document to extract from
+     * @param fieldPath The dot-separated field path (e.g., "addresses.postalCode")
+     * @return List of all values found at the path (may be empty)
+     */
+    public List<Object> extractAllNestedValues(Document doc, String fieldPath) {
+        List<Object> results = new ArrayList<>();
+        String[] parts = fieldPath.split("\\.");
+        extractValuesRecursive(doc, parts, 0, results);
+        return results;
+    }
+
+    /**
+     * Recursively extract values from nested structure, handling arrays.
+     */
+    private void extractValuesRecursive(Object current, String[] pathParts, int index, List<Object> results) {
+        if (current == null) {
+            return;
+        }
+
+        // If we've processed all path parts, add the current value to results
+        if (index >= pathParts.length) {
+            results.add(current);
+            return;
+        }
+
+        String part = pathParts[index];
+
+        if (current instanceof Document doc) {
+            Object child = doc.get(part);
+            if (child instanceof List<?> list) {
+                // If the child is a list, recurse into each element
+                for (Object item : list) {
+                    extractValuesRecursive(item, pathParts, index + 1, results);
+                }
+            } else {
+                // Not a list, continue normally
+                extractValuesRecursive(child, pathParts, index + 1, results);
+            }
+        } else if (current instanceof List<?> list) {
+            // If current is a list, recurse into each element with the same path part
+            for (Object item : list) {
+                extractValuesRecursive(item, pathParts, index, results);
+            }
+        }
+        // For other types (primitives, etc.), we can't traverse further
     }
 
     /**

@@ -72,3 +72,6 @@ results/
 *-private.yaml
 connstr.txt
 *-credentials*
+
+# Documents
+*.pdf
