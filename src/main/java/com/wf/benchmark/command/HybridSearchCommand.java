@@ -115,10 +115,14 @@ public class HybridSearchCommand implements Callable<Integer> {
     @Option(names = {"-w", "--warmup"}, description = "Number of warmup iterations", defaultValue = "3")
     private int warmupIterations;
 
+    // Sample data loader for data-driven tests
+    private SampleDataLoader sampleDataLoader;
+
     @Override
     public Integer call() {
         try {
             DataSource dataSource = createDataSource();
+            this.sampleDataLoader = new SampleDataLoader(dataSource, collection);
 
             // Handle index creation if requested
             if (setupAllIndexes) {
@@ -318,15 +322,38 @@ public class HybridSearchCommand implements Callable<Integer> {
         System.out.println("     HYBRID SEARCH TEST SUITE");
         System.out.println("========================================\n");
 
+        // Load sample data from database
+        System.out.println("Loading sample data from database...");
+        String[][] sampleNames = sampleDataLoader.getSampleNamesArray(10);
+        String[] sampleBusinessNames = sampleDataLoader.getSampleBusinessNamesArray(5);
+        System.out.println("  Loaded " + sampleNames.length + " sample names");
+        System.out.println("  Loaded " + sampleBusinessNames.length + " sample business names");
+        System.out.println();
+
+        // Use first sample name for tests (introducing typo for fuzzy test)
+        String testFirstName = sampleNames[0][0];
+        String testLastName = sampleNames[0][1];
+        // Create typo version by replacing last char
+        String typoFirstName = testFirstName.length() > 1 ?
+            testFirstName.substring(0, testFirstName.length() - 1) + "e" : testFirstName;
+        String typoLastName = testLastName.length() > 1 ?
+            testLastName.substring(0, testLastName.length() - 1) + "e" : testLastName;
+
+        // Use first sample business name for tests
+        String testBusinessName = sampleBusinessNames[0];
+        // Create typo version
+        String typoBusinessName = testBusinessName.length() > 1 ?
+            testBusinessName.substring(0, testBusinessName.length() - 1) + "n" : testBusinessName;
+
         int passed = 0;
         int failed = 0;
 
         // Test 1: Fuzzy name search
         System.out.println("[TEST 1] Fuzzy Name Search");
-        System.out.println("  Searching for 'Jon Smithe' (intentional typos)...");
+        System.out.printf("  Searching for '%s %s' (with typos)...%n", typoFirstName, typoLastName);
         try {
             long start = System.currentTimeMillis();
-            List<HybridSearchResult> results = service.searchByName("Jon", "Smithe", collection, 10);
+            List<HybridSearchResult> results = service.searchByName(typoFirstName, typoLastName, collection, 10);
             long elapsed = System.currentTimeMillis() - start;
             System.out.println("  Results: " + results.size() + " found in " + elapsed + "ms");
             if (!results.isEmpty()) {
@@ -343,12 +370,12 @@ public class HybridSearchCommand implements Callable<Integer> {
         }
         System.out.println();
 
-        // Test 2: Phonetic name search
+        // Test 2: Phonetic name search (use original name - phonetic should find it)
         System.out.println("[TEST 2] Phonetic Name Search (sounds-alike)");
-        System.out.println("  Searching for 'Sally Smith' (should match Sallie, etc.)...");
+        System.out.printf("  Searching for '%s %s' (phonetic match)...%n", testFirstName, testLastName);
         try {
             long start = System.currentTimeMillis();
-            List<HybridSearchResult> results = service.searchByName("Sally", "Smith", collection, 10);
+            List<HybridSearchResult> results = service.searchByName(testFirstName, testLastName, collection, 10);
             long elapsed = System.currentTimeMillis() - start;
             System.out.println("  Results: " + results.size() + " found in " + elapsed + "ms");
             if (!results.isEmpty()) {
@@ -365,12 +392,14 @@ public class HybridSearchCommand implements Callable<Integer> {
         }
         System.out.println();
 
-        // Test 3: Nickname expansion
-        System.out.println("[TEST 3] Nickname Expansion");
-        System.out.println("  Searching for 'Bill Johnson' (should match William)...");
+        // Test 3: Nickname expansion - use second sample name if available
+        String test3FirstName = sampleNames.length > 1 ? sampleNames[1][0] : testFirstName;
+        String test3LastName = sampleNames.length > 1 ? sampleNames[1][1] : testLastName;
+        System.out.println("[TEST 3] Different Name Search");
+        System.out.printf("  Searching for '%s %s'...%n", test3FirstName, test3LastName);
         try {
             long start = System.currentTimeMillis();
-            List<HybridSearchResult> results = service.searchByName("Bill", "Johnson", collection, 10);
+            List<HybridSearchResult> results = service.searchByName(test3FirstName, test3LastName, collection, 10);
             long elapsed = System.currentTimeMillis() - start;
             System.out.println("  Results: " + results.size() + " found in " + elapsed + "ms");
             if (!results.isEmpty()) {
@@ -420,11 +449,11 @@ public class HybridSearchCommand implements Callable<Integer> {
 
         // Test 5: Business name fuzzy search
         System.out.println("[TEST 5] Business Name Fuzzy Search");
-        System.out.println("  Searching for 'Acme Corporaton' (typo)...");
+        System.out.printf("  Searching for '%s' (with typo)...%n", typoBusinessName);
         try {
             long start = System.currentTimeMillis();
             List<HybridSearchResult> results = service.searchByBusinessDescription(
-                "Acme Corporaton", collection, 10);
+                typoBusinessName, collection, 10);
             long elapsed = System.currentTimeMillis() - start;
             System.out.println("  Results: " + results.size() + " found in " + elapsed + "ms");
             if (!results.isEmpty()) {
@@ -443,10 +472,10 @@ public class HybridSearchCommand implements Callable<Integer> {
 
         // Test 6: Hybrid combined search
         System.out.println("[TEST 6] Hybrid Combined Search");
-        System.out.println("  Searching for 'John Smith' using all strategies...");
+        System.out.printf("  Searching for '%s %s' using all strategies...%n", testFirstName, testLastName);
         try {
             long start = System.currentTimeMillis();
-            List<HybridSearchResult> results = service.searchByName("John", "Smith", collection, 20);
+            List<HybridSearchResult> results = service.searchByName(testFirstName, testLastName, collection, 20);
             long elapsed = System.currentTimeMillis() - start;
             System.out.println("  Results: " + results.size() + " found in " + elapsed + "ms");
 
@@ -477,10 +506,10 @@ public class HybridSearchCommand implements Callable<Integer> {
 
         // Test 7: Performance test
         System.out.println("[TEST 7] Performance Test");
-        System.out.println("  Running hybrid search with 100 result limit...");
+        System.out.printf("  Running hybrid search for '%s %s' with 100 result limit...%n", testFirstName, testLastName);
         try {
             long start = System.currentTimeMillis();
-            List<HybridSearchResult> results = service.searchByName("John", "Smith", collection, 100);
+            List<HybridSearchResult> results = service.searchByName(testFirstName, testLastName, collection, 100);
             long elapsed = System.currentTimeMillis() - start;
             System.out.println("  Results: " + results.size() + " found in " + elapsed + "ms");
 
@@ -800,20 +829,13 @@ public class HybridSearchCommand implements Callable<Integer> {
 
         List<BenchmarkResult> results = new ArrayList<>();
 
-        // Define benchmark scenarios
-        String[][] nameSearches = {
-            {"John", "Smith"},
-            {"Mary", "Johnson"},
-            {"Robert", "Williams"},
-            {"Jon", "Smithe"},      // Typos for fuzzy
-            {"Bill", "Johnson"},   // Nickname expansion
-        };
-
-        String[] businessSearches = {
-            "Acme Corporation",
-            "Tech Solutions",
-            "Global Services"
-        };
+        // Load sample data from database for data-driven tests
+        System.out.println("Loading sample data from database...");
+        String[][] nameSearches = sampleDataLoader.getSampleNamesArray(10);
+        String[] businessSearches = sampleDataLoader.getSampleBusinessNamesArray(5);
+        System.out.println("  Loaded " + nameSearches.length + " sample names");
+        System.out.println("  Loaded " + businessSearches.length + " sample business names");
+        System.out.println();
 
         // Benchmark 1: Phonetic-only name search
         System.out.println("--------------------------------------------------------------------------------");
