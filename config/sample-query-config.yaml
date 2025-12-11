@@ -263,41 +263,133 @@ queries:
         pattern: "\\d{4}"
     targetLatencyMs: 100
 
-  # UC-4: Last 4 SSN + Account (Simplified - Identity only for now)
-  - name: "uc4_ssn_last4_search"
-    description: "UC-4: Search by SSN Last 4 digits"
-    collection: "identity"
+  # UC-2: Phone + SSN Last 4 + Account Last 4 (Three-step chained join)
+  - name: "uc2_phone_ssn_account"
+    description: "UC-2: Search by Phone + SSN Last 4 + Account Last 4"
+    collection: "phone"
     type: "find"
     filter:
-      common.taxIdentificationNumberLast4: "${param:ssnLast4}"
-    limit: 100
+      phoneKey.phoneNumber: "${param:phoneNumber}"
+    join:
+      collection: "identity"
+      localField: "phoneKey.customerNumber"
+      foreignField: "_id.customerNumber"
+      filter:
+        common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+      join:
+        collection: "account"
+        localField: "_id.customerNumber"
+        foreignField: "accountHolders.customerNumber"
+        filter:
+          accountKey.accountNumberLast4: "${param:accountLast4}"
     parameters:
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
       ssnLast4:
         type: "random_pattern"
         pattern: "\\d{4}"
-    targetLatencyMs: 50
+      accountLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 150
 
-  # UC-5: Address search component (correlated - same address document)
-  - name: "uc5_address_search"
-    description: "UC-5: Search by City/State/ZIP"
+  # UC-3: Phone + Account Last 4 (phone -> identity -> account chain)
+  - name: "uc3_phone_account"
+    description: "UC-3: Search by Phone + Account Last 4"
+    collection: "phone"
+    type: "find"
+    filter:
+      phoneKey.phoneNumber: "${param:phoneNumber}"
+    join:
+      collection: "identity"
+      localField: "phoneKey.customerNumber"
+      foreignField: "_id.customerNumber"
+      join:
+        collection: "account"
+        localField: "_id.customerNumber"
+        foreignField: "accountHolders.customerNumber"
+        filter:
+          accountKey.accountNumberLast4: "${param:accountLast4}"
+    parameters:
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
+      accountLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 100
+
+  # UC-4: Account + SSN Last 4 (account -> identity join)
+  - name: "uc4_account_ssn"
+    description: "UC-4: Search by Account Number and Last 4 of SSN"
+    collection: "account"
+    type: "find"
+    filter:
+      accountKey.accountNumber: "${param:accountNumber}"
+    join:
+      collection: "identity"
+      localField: "accountHolders.customerNumber"
+      foreignField: "_id.customerNumber"
+      filter:
+        common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+    parameters:
+      accountNumber:
+        type: "random_from_loaded"
+        collection: "account"
+        field: "accountKey.accountNumber"
+      ssnLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 100
+
+  # UC-5: Address + SSN Last 4 + Account Last 4 (Three-step chained join)
+  - name: "uc5_address_ssn_account"
+    description: "UC-5: Search by City/State/ZIP + SSN Last 4 + Account Last 4"
     collection: "address"
     type: "find"
     filter:
       addresses.stateCode: "${param:state}"
       addresses.cityName: "${param:city}"
+      addresses.postalCode: "${param:zip}"
+    join:
+      collection: "identity"
+      localField: "_id.customerNumber"
+      foreignField: "_id.customerNumber"
+      filter:
+        common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+      join:
+        collection: "account"
+        localField: "_id.customerNumber"
+        foreignField: "accountHolders.customerNumber"
+        filter:
+          accountKey.accountNumberLast4: "${param:accountLast4}"
     limit: 100
     parameters:
       state:
         type: "random_from_loaded"
         collection: "address"
         field: "addresses.stateCode"
-        correlationGroup: "address_city_state"
+        correlationGroup: "address_city_state_zip"
       city:
         type: "random_from_loaded"
         collection: "address"
         field: "addresses.cityName"
-        correlationGroup: "address_city_state"
-    targetLatencyMs: 50
+        correlationGroup: "address_city_state_zip"
+      zip:
+        type: "random_from_loaded"
+        collection: "address"
+        field: "addresses.postalCode"
+        correlationGroup: "address_city_state_zip"
+      ssnLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+      accountLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 150
 
   # ---------------------------------------------------------------------------
   # OTHER REQUIRED SEARCHES
@@ -511,21 +603,39 @@ queries:
         pattern: "\\d{4}"
     targetLatencyMs: 100
 
-  # UC-7: Email + Phone + Account Last 4 (correlated parameters)
-  # Uses correlated params to search by email and phone type from same customer
+  # UC-7: Email + Phone + Account Last 4 (identity -> phone + account join chain)
   - name: "uc7_email_phone_account"
-    description: "UC-7: Search by Email and Phone Type (correlated)"
+    description: "UC-7: Search by Email + Phone + Account Last 4"
     collection: "identity"
     type: "find"
     filter:
       emails.emailAddress: "${param:email}"
+    join:
+      collection: "phone"
+      localField: "_id.customerNumber"
+      foreignField: "phoneKey.customerNumber"
+      filter:
+        phoneKey.phoneNumber: "${param:phoneNumber}"
+      join:
+        collection: "account"
+        localField: "phoneKey.customerNumber"
+        foreignField: "accountHolders.customerNumber"
+        filter:
+          accountKey.accountNumberLast4: "${param:accountLast4}"
     limit: 10
     parameters:
       email:
         type: "random_from_loaded"
         collection: "identity"
         field: "emails.emailAddress"
-    targetLatencyMs: 50
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
+      accountLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+    targetLatencyMs: 150
 
   # OS-2: Full Account Number Search
   - name: "os2_account_full_search"

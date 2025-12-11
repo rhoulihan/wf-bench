@@ -8,18 +8,20 @@
 
 ## Executive Summary
 
-Successfully executed 26 query benchmarks with correlated parameter support. The correlated parameters feature enables extracting multiple related parameter values from the same randomly-selected document, ensuring realistic query patterns where filters on DOB+name or firstName+lastName actually match existing data.
+Successfully executed 30 query benchmarks with correlated parameter support and **multi-collection join functionality**. The correlated parameters feature enables extracting multiple related parameter values from the same randomly-selected document. The new multi-collection join feature implements all 7 use cases (UC-1 through UC-7) requiring queries across multiple collections.
 
 ### Key Results
 
 | Metric | Value |
 |--------|-------|
-| MongoDB API Queries | 26 (all passing) |
+| MongoDB API Queries | 30 (all passing) |
+| Multi-Collection Join Queries | 7 (UC-1 through UC-7) |
 | Hybrid Search Queries | 5 (4 working, 1 pending vector setup) |
 | Indexes Created | 20 |
 | Concurrent Threads | 12 |
 | MongoDB API Iterations | 10 (+ 3 warmup) |
 | Hybrid Search Iterations | 100 (+ 10 warmup) |
+| Unit Tests | 151 (all passing) |
 
 ---
 
@@ -130,6 +132,93 @@ WARN - No value found for field 'individual.birthDate' in correlated document fo
 ```
 
 This is expected behavior - the query still executes but returns fewer results.
+
+---
+
+## Multi-Collection Join Feature
+
+### Overview
+
+The multi-collection join feature enables queries that span multiple collections using a declarative YAML syntax. This implements all 7 primary use cases (UC-1 through UC-7) from the Wells Fargo requirements.
+
+### Use Case Implementation
+
+| Use Case | Description | Collections | Join Chain |
+|----------|-------------|-------------|------------|
+| **UC-1** | Phone + SSN Last 4 | phone → identity | 2-way join |
+| **UC-2** | Phone + SSN Last 4 + Account Last 4 | phone → identity → account | 3-way chained join |
+| **UC-3** | Phone + Account Last 4 | phone → identity → account | 3-way chained join |
+| **UC-4** | Account + SSN Last 4 | account → identity | 2-way join |
+| **UC-5** | Address + SSN + Account Last 4 | address → identity → account | 3-way chained join |
+| **UC-6** | Email + Account Last 4 | identity → account | 2-way join |
+| **UC-7** | Email + Phone + Account Last 4 | identity → phone → account | 3-way chained join |
+
+### YAML Configuration Syntax
+
+Joins are defined declaratively in the query YAML:
+
+```yaml
+# UC-2: Phone + SSN Last 4 + Account Last 4 (Three-step chained join)
+- name: "uc2_phone_ssn_account"
+  description: "UC-2: Search by Phone + SSN Last 4 + Account Last 4"
+  collection: "phone"
+  type: "find"
+  filter:
+    phoneKey.phoneNumber: "${param:phoneNumber}"
+  join:
+    collection: "identity"
+    localField: "phoneKey.customerNumber"
+    foreignField: "_id.customerNumber"
+    filter:
+      common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+    join:                                    # Chained join!
+      collection: "account"
+      localField: "_id.customerNumber"
+      foreignField: "accountHolders.customerNumber"
+      filter:
+        accountKey.accountNumberLast4: "${param:accountLast4}"
+  parameters:
+    phoneNumber:
+      type: "random_from_loaded"
+      collection: "phone"
+      field: "phoneKey.phoneNumber"
+    ssnLast4:
+      type: "random_pattern"
+      pattern: "\\d{4}"
+    accountLast4:
+      type: "random_pattern"
+      pattern: "\\d{4}"
+```
+
+### Join Definition Properties
+
+| Property | Description |
+|----------|-------------|
+| `collection` | Target collection to join to |
+| `localField` | Field in source document (dot notation supported) |
+| `foreignField` | Field in target collection to match |
+| `filter` | Additional filter criteria on target collection |
+| `join` | Nested join for chaining (recursive) |
+
+### Implementation Details
+
+The join execution logic is implemented in `QueryRunner.java`:
+
+1. **Primary Query**: Execute the main query to get source documents
+2. **Join Execution**: For each source document:
+   - Extract the `localField` value using dot notation
+   - Build join filter: `{foreignField: localValue}` + any additional filters
+   - Query the target collection
+3. **Chained Joins**: If `nextJoin` is defined, recursively process
+4. **Result Filtering**: Only source documents where the entire join chain matches are counted
+
+### Test Coverage
+
+14 unit tests cover the multi-collection join functionality:
+- `JoinDefinitionTests`: Basic join definition creation
+- `QueryDefinitionWithJoinTests`: Query with join parsing
+- `UC1-UC7 Tests`: Each use case has dedicated tests
+- `YamlParsingTests`: YAML parsing of join definitions
 
 ---
 
@@ -376,7 +465,7 @@ See `config/hybrid-search-config.yaml` for full configuration and query definiti
 - **Driver:** MongoDB Java Driver 5.2.1
 - **Connection:** MongoDB API for Oracle (ORDS)
 - **Region:** US-Ashburn-1
-- **Test Suite:** 130 tests (121 unit + 9 integration)
+- **Test Suite:** 151 tests (146 unit + 5 skipped integration)
 
 ---
 

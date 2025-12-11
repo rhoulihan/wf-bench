@@ -213,16 +213,16 @@ class FuzzySearchServiceTest {
     class SQLGenerationTests {
 
         @Test
-        void shouldGenerateCorrectJsonTextContainsQuery() throws SQLException {
+        void shouldGenerateCorrectContainsWithFuzzyQuery() throws SQLException {
             // Given
             stubDataSource.setResultData(new String[][] {}); // No results
 
             // When
             fuzzySearchService.searchByName("test", "identity", 10);
 
-            // Then - verify the SQL uses JSON_TEXTCONTAINS
-            assertThat(stubDataSource.getLastPreparedSql()).contains("JSON_TEXTCONTAINS");
-            assertThat(stubDataSource.getLastPreparedSql()).contains("$.common.fullName");
+            // Then - verify the SQL uses CONTAINS with FUZZY operator
+            assertThat(stubDataSource.getLastPreparedSql()).contains("CONTAINS(DATA,");
+            assertThat(stubDataSource.getLastPreparedSql()).contains("SCORE(1)");
         }
     }
 

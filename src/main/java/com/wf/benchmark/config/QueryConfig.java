@@ -95,6 +95,76 @@ public class QueryConfig {
         }
     }
 
+    /**
+     * Definition for a join to another collection.
+     * Supports chained joins for multi-collection queries.
+     */
+    public static class JoinDefinition {
+        private String collection;      // Target collection to join to
+        private String localField;      // Field in source document to match
+        private String foreignField;    // Field in target collection to match
+        private Document filter;        // Additional filter on target collection
+        private JoinDefinition nextJoin; // For chained joins (e.g., phone -> identity -> account)
+
+        public String getCollection() {
+            return collection;
+        }
+
+        public void setCollection(String collection) {
+            this.collection = collection;
+        }
+
+        public String getLocalField() {
+            return localField;
+        }
+
+        public void setLocalField(String localField) {
+            this.localField = localField;
+        }
+
+        public String getForeignField() {
+            return foreignField;
+        }
+
+        public void setForeignField(String foreignField) {
+            this.foreignField = foreignField;
+        }
+
+        public Document getFilter() {
+            return filter;
+        }
+
+        public void setFilter(Document filter) {
+            this.filter = filter;
+        }
+
+        public JoinDefinition getNextJoin() {
+            return nextJoin;
+        }
+
+        public void setNextJoin(JoinDefinition nextJoin) {
+            this.nextJoin = nextJoin;
+        }
+
+        /**
+         * Create a JoinDefinition from a YAML map structure.
+         */
+        @SuppressWarnings("unchecked")
+        public static JoinDefinition fromMap(Map<String, Object> map) {
+            JoinDefinition join = new JoinDefinition();
+            join.setCollection((String) map.get("collection"));
+            join.setLocalField((String) map.get("localField"));
+            join.setForeignField((String) map.get("foreignField"));
+            if (map.containsKey("filter")) {
+                join.setFilter(new Document((Map<String, Object>) map.get("filter")));
+            }
+            if (map.containsKey("join")) {
+                join.setNextJoin(fromMap((Map<String, Object>) map.get("join")));
+            }
+            return join;
+        }
+    }
+
     public static class QueryDefinition {
         private String name;
         private String description;
@@ -108,6 +178,7 @@ public class QueryConfig {
         private Map<String, ParameterDefinition> parameters;
         private String requiresIndex;
         private Integer expectedResults;
+        private JoinDefinition join; // For multi-collection queries
 
         public String getName() {
             return name;
@@ -203,6 +274,18 @@ public class QueryConfig {
 
         public void setExpectedResults(Integer expectedResults) {
             this.expectedResults = expectedResults;
+        }
+
+        public JoinDefinition getJoin() {
+            return join;
+        }
+
+        public void setJoin(JoinDefinition join) {
+            this.join = join;
+        }
+
+        public boolean hasJoin() {
+            return join != null;
         }
     }
 
@@ -433,6 +516,9 @@ public class QueryConfig {
                 }
                 if (q.containsKey("expectedResults")) {
                     queryDef.setExpectedResults((Integer) q.get("expectedResults"));
+                }
+                if (q.containsKey("join")) {
+                    queryDef.setJoin(JoinDefinition.fromMap((Map<String, Object>) q.get("join")));
                 }
                 config.queries.add(queryDef);
             }

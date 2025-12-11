@@ -6,6 +6,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.wf.benchmark.config.QueryConfig;
+import com.wf.benchmark.config.QueryConfig.JoinDefinition;
 import com.wf.benchmark.config.QueryConfig.QueryDefinition;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -145,12 +146,106 @@ public class QueryRunner {
             cursor = cursor.limit(queryDef.getLimit());
         }
 
-        long count = 0;
-        for (Document doc : cursor) {
-            count++;
+        // If no join, just count results
+        if (!queryDef.hasJoin()) {
+            long count = 0;
+            for (Document doc : cursor) {
+                count++;
+            }
+            return new QueryResult(count, count);
         }
 
-        return new QueryResult(count, count);
+        // Execute join for each primary document
+        MongoDatabase database = client.getDatabase(config.getConnection().getDatabase());
+        List<Document> primaryDocs = new ArrayList<>();
+        for (Document doc : cursor) {
+            primaryDocs.add(doc);
+        }
+
+        long matchingCount = 0;
+        for (Document primaryDoc : primaryDocs) {
+            boolean joinMatches = executeJoinChain(database, primaryDoc, queryDef.getJoin(), paramGen);
+            if (joinMatches) {
+                matchingCount++;
+            }
+        }
+
+        return new QueryResult(matchingCount, primaryDocs.size());
+    }
+
+    /**
+     * Execute a chain of joins starting from a source document.
+     * Returns true if the entire join chain matches (all joins find at least one result).
+     */
+    private boolean executeJoinChain(MongoDatabase database, Document sourceDoc,
+                                     JoinDefinition joinDef, ParameterGenerator paramGen) {
+        if (joinDef == null) {
+            return true; // No more joins to process
+        }
+
+        // Get the local field value from the source document
+        Object localValue = getNestedValue(sourceDoc, joinDef.getLocalField());
+        if (localValue == null) {
+            log.debug("Local field {} not found in document", joinDef.getLocalField());
+            return false;
+        }
+
+        // Build the join filter
+        Document joinFilter = new Document(joinDef.getForeignField(), localValue);
+
+        // Add any additional filter from the join definition
+        if (joinDef.getFilter() != null) {
+            Document additionalFilter = paramGen.substituteParameters(joinDef.getFilter());
+            joinFilter.putAll(additionalFilter);
+        }
+
+        // Query the target collection
+        MongoCollection<Document> targetCollection = database.getCollection(joinDef.getCollection());
+        FindIterable<Document> joinResults = targetCollection.find(joinFilter);
+
+        // Check if any documents match
+        List<Document> matchedDocs = new ArrayList<>();
+        for (Document doc : joinResults) {
+            matchedDocs.add(doc);
+        }
+
+        if (matchedDocs.isEmpty()) {
+            return false; // Join didn't match any documents
+        }
+
+        // If there's a next join in the chain, process it
+        if (joinDef.getNextJoin() != null) {
+            for (Document matchedDoc : matchedDocs) {
+                if (executeJoinChain(database, matchedDoc, joinDef.getNextJoin(), paramGen)) {
+                    return true; // At least one path through the chain matched
+                }
+            }
+            return false; // No paths through the chain matched
+        }
+
+        return true; // This join matched and there are no more joins
+    }
+
+    /**
+     * Get a nested value from a document using dot notation.
+     * E.g., "phoneKey.customerNumber" would get doc.phoneKey.customerNumber
+     */
+    private Object getNestedValue(Document doc, String fieldPath) {
+        String[] parts = fieldPath.split("\\.");
+        Object current = doc;
+
+        for (String part : parts) {
+            if (current == null) {
+                return null;
+            }
+            if (current instanceof Document) {
+                current = ((Document) current).get(part);
+            } else {
+                return null;
+            }
+        }
+
+        return current;
     }
 
     private QueryResult executeAggregateQuery(MongoCollection<Document> collection,
