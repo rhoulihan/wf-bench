@@ -27,7 +27,7 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 ### High Performance Queries (< 10ms avg)
 
-| Query | Description | MongoDB Command | Avg (ms) | P95 (ms) | Throughput |
+| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput |
 |-------|-------------|-----------------|----------|----------|------------|
 | **fuzzy_name_search** | **Fuzzy text search** | `JSON_TEXTCONTAINS(DATA, '$.common.fullName', ?)` | **2.81** | **3.08** | **356.3/s** |
 | **fuzzy_business_search** | **Fuzzy business name** | `JSON_TEXTCONTAINS(DATA, '$.business.businessName', ?)` | **3.53** | **4.50** | **283.4/s** |
@@ -43,7 +43,7 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 ### Medium Performance Queries (10-50ms avg)
 
-| Query | Description | MongoDB Command | Avg (ms) | P95 (ms) | Throughput |
+| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput |
 |-------|-------------|-----------------|----------|----------|------------|
 | wr_g_entity_type_filter | Entity type filter | `db.identity.find({common.entityTypeIndicator: ?})` | 10.50 | 11.75 | 95.2/s |
 | **phonetic_name_search** | **Phonetic (SOUNDEX)** | `SELECT ... WHERE SOUNDEX(?) = SOUNDEX(full_name)` | **10.31** | **14.55** | **97.0/s** |
@@ -58,7 +58,7 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 ### Address Searches (Higher Latency)
 
-| Query | Description | MongoDB Command | Avg (ms) | P95 (ms) | Throughput |
+| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput |
 |-------|-------------|-----------------|----------|----------|------------|
 | uc5_address_search | City/State/ZIP (correlated) | `db.address.find({addresses.stateCode: ?, addresses.cityName: ?})` | 160.73 | 332.54 | 6.2/s |
 | wr_b_address_with_name | State/ZIP (correlated) | `db.address.find({addresses.stateCode: ?, addresses.postalCode: ?})` | 205.69 | 459.26 | 4.9/s |
@@ -66,7 +66,7 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 ### Aggregation Queries (Full Collection Scans)
 
-| Query | Description | MongoDB Command | Avg (ms) | P95 (ms) | Throughput |
+| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput |
 |-------|-------------|-----------------|----------|----------|------------|
 | agg_count_by_entity_type | Count by entity type | `db.identity.aggregate([{$group:{_id:"$common.entityTypeIndicator"}}])` | 1836.75 | 1977.34 | 0.5/s |
 | agg_phone_type_distribution | Phone type distribution | `db.phone.aggregate([{$group:{_id:"$phoneKey.phoneNumberTypeCode"}}])` | 4618.65 | 4739.07 | 0.2/s |
@@ -76,7 +76,7 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 ### Baseline Queries
 
-| Query | Description | MongoDB Command | Avg (ms) | P95 (ms) | Notes |
+| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Notes |
 |-------|-------------|-----------------|----------|----------|-------|
 | baseline_pk_lookup | PK lookup by compound _id | `db.identity.find({_id.customerNumber: ?, _id.customerCompanyNumber: ?})` | 460.98 | 503.04 | Correlated params |
 
