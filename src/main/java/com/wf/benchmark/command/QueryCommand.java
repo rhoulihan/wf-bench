@@ -44,7 +44,7 @@ public class QueryCommand implements Callable<Integer> {
     @Option(names = {"--connection-pool"}, description = "MongoDB connection pool size", defaultValue = "10")
     private int connectionPoolSize;
 
-    @Option(names = {"--create-indexes"}, description = "Create indexes from config", defaultValue = "true")
+    @Option(names = {"--create-indexes"}, description = "Create indexes from config", negatable = true, defaultValue = "false")
     private boolean createIndexes;
 
     @Option(names = {"--drop-indexes"}, description = "Drop indexes before run", defaultValue = "false")

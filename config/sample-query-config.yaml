@@ -108,12 +108,21 @@ indexes:
   # Address Collection Indexes
   # ---------------------------------------------------------------------------
 
-  # City/State/ZIP search - UC-5, WR-B
+  # City/State/ZIP search - UC-5
   - collection: "address"
     name: "idx_address_city_state_zip"
     keys:
       addresses.stateCode: 1
       addresses.cityName: 1
+      addresses.postalCode: 1
+    options:
+      background: true
+
+  # State/ZIP search - WR-B (separate index for queries skipping cityName)
+  - collection: "address"
+    name: "idx_address_state_zip"
+    keys:
+      addresses.stateCode: 1
       addresses.postalCode: 1
     options:
       background: true
