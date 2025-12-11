@@ -63,7 +63,8 @@ ehthumbs.db
 Thumbs.db
 
 # Application specific
-results/
+results/*.csv
+results/*.json
 *.csv
 *.json
 

@@ -9,6 +9,13 @@ A Java CLI tool for benchmarking the MongoDB API for Oracle Database. Load test 
 - **Index Management** - Create and manage indexes via YAML configuration
 - **Multiple Output Formats** - Console, CSV, and JSON output for integration with analysis tools
 - **Tunable Parameters** - Thread count, batch size, connection pool size, and more
+- **Parameterized Queries** - Support for multiple parameter generation strategies:
+  - `random_range` - Random value within min/max range
+  - `random_choice` - Random selection from predefined list
+  - `random_pattern` - Generate strings matching regex-like patterns (e.g., `\d{4}` for 4 digits)
+  - `random_from_loaded` - Sample actual values from database collections (supports nested array fields)
+  - `sequential` - Iterate through a range
+  - `fixed` - Constant value
 
 ## Requirements
 
@@ -162,16 +169,42 @@ queries:
         type: "random_range"
         min: 1000000001
         max: 1000100000
+
+  # Example using random_pattern for SSN last 4
+  - name: "find_by_ssn_last4"
+    description: "Search by SSN last 4 digits"
+    collection: "bench_identity"
+    type: "find"
+    filter:
+      common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+    parameters:
+      ssnLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"  # Generates 4 random digits
+
+  # Example using random_from_loaded (samples from actual data)
+  - name: "find_by_zip"
+    description: "Search by ZIP code"
+    collection: "bench_address"
+    type: "find"
+    filter:
+      addresses.postalCode: "${param:zip}"
+    parameters:
+      zip:
+        type: "random_from_loaded"
+        collection: "address"
+        field: "addresses.postalCode"  # Supports nested array fields
 ```
 
 ## Data Model
 
-The tool generates three collections matching a customer information system:
+The tool generates four collections matching a customer information system:
 
 ### Identity Collection
 - Composite key: `{customerNumber, customerCompanyNumber}`
 - Individual customers (70%): name, SSN, birth date, identifications
 - Business customers (30%): company name, EIN, NAICS codes, registration info
+- Embedded emails array (1-3 per customer)
 
 ### Address Collection
 - One document per customer with array of addresses
@@ -182,6 +215,12 @@ The tool generates three collections matching a customer information system:
 - Multiple documents per customer (ratio configurable)
 - Phone types: MOBILE, HOME, BUSINESS, FAX
 - Includes verification status, provider info, line type
+
+### Account Collection
+- Links accounts to customer identities via `accountHolders` array
+- Supports multiple holders per account (joint accounts, authorized users)
+- Full and last-4 account number fields for different search patterns
+- Tokenized account number for security scenarios
 
 ## Sample Output
 
@@ -234,7 +273,10 @@ wf_bench/
 │   ├── sample-load-config.yaml
 │   └── sample-query-config.yaml
 ├── docs/
-│   └── IMPLEMENTATION_PLAN.md
+│   ├── IMPLEMENTATION_PLAN.md
+│   └── QUERY_IMPLEMENTATION_PLAN.md
+├── results/                       # Benchmark results
+│   └── BENCHMARK_SUMMARY_*.md
 └── src/
     ├── main/java/com/wf/benchmark/
     │   ├── WfBenchmarkCli.java    # Main entry point
@@ -243,6 +285,7 @@ wf_bench/
     │   ├── generator/             # Data generators
     │   ├── loader/                # Data loading
     │   ├── query/                 # Query execution
+    │   │   └── ParameterGenerator.java  # Parameter value generation
     │   └── report/                # Output formatting
     └── test/java/                 # Unit tests
 ```
