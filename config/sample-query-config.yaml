@@ -91,7 +91,7 @@ indexes:
   - collection: "identity"
     name: "idx_identity_id_docs"
     keys:
-      common.identifications.documentNumber: 1
+      common.identifications.identificationNumber: 1
     options:
       background: true
 
@@ -449,13 +449,13 @@ queries:
     collection: "identity"
     type: "find"
     filter:
-      common.identifications.documentNumber: "${param:documentNumber}"
+      common.identifications.identificationNumber: "${param:identificationNumber}"
     expectedResults: 1
     parameters:
-      documentNumber:
+      identificationNumber:
         type: "random_from_loaded"
         collection: "identity"
-        field: "common.identifications.documentNumber"
+        field: "common.identifications.identificationNumber"
     targetLatencyMs: 30
 
   # WR-E: Email Exact Match (embedded in identity)
