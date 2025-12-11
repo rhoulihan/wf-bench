@@ -301,23 +301,23 @@ See `config/hybrid-search-config.yaml` for configuration and `results/BENCHMARK_
 | uc2_phone_ssn_account | Phone + SSN + Account (3-way) | 6.91ms | 7.73ms | 144.6/sec |
 | uc1_phone_ssn_last4 | Phone + SSN last 4 (2-way) | 7.87ms | 8.85ms | 127.0/sec |
 
-### Multi-Collection Join Queries
+### Multi-Collection Join Queries (UC-1 through UC-7)
 
 | Query | Description | Join Chain | Avg | Throughput |
 |-------|-------------|------------|-----|------------|
 | UC-1 | Phone + SSN Last 4 | phone → identity | 7.87ms | 127.0/sec |
 | UC-2 | Phone + SSN + Account | phone → identity → account | 6.91ms | 144.6/sec |
+| UC-3 | Phone + Account | phone → identity → account | 453.66ms | 2.2/sec |
 | UC-4 | Account + SSN | account → identity | 2.33ms | 428.5/sec |
+| UC-5 | Address + SSN + Account | address → identity → account | 246.80ms | 4.1/sec |
 | UC-6 | Email + Account Last 4 | identity → account | 12.21ms | 81.9/sec |
 | UC-7 | Email + Phone + Account | identity → phone → account | 5.75ms | 174.0/sec |
 
-### Address & Multi-Collection Join Queries (Higher Latency)
+### Address Queries (Higher Latency)
 
 | Query | Description | Avg | P95 | Throughput |
 |-------|-------------|-----|-----|------------|
 | wr_b_address_with_name | State/ZIP (correlated) | 222.88ms | 594.43ms | 4.5/sec |
-| uc5_address_ssn_account | Address + SSN + Account (3-way) | 246.80ms | 612.35ms | 4.1/sec |
-| uc3_phone_account | Phone + Account (3-way) | 453.66ms | 507.90ms | 2.2/sec |
 
 *See [results/BENCHMARK_SUMMARY.md](results/BENCHMARK_SUMMARY.md) for detailed results including aggregation queries and hybrid search.*
 
