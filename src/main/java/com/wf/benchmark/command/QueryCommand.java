@@ -104,6 +104,11 @@ public class QueryCommand implements Callable<Integer> {
             // Handle indexes
             IndexManager indexManager = new IndexManager(client, config);
 
+            if (!quiet) {
+                System.out.printf("Index config: dropIndexes=%b, createIndexes=%b, indexCount=%d%n",
+                    dropIndexes, createIndexes, config.getIndexes().size());
+            }
+
             if (dropIndexes) {
                 if (!quiet) {
                     System.out.println("Dropping existing indexes...");
@@ -111,7 +116,7 @@ public class QueryCommand implements Callable<Integer> {
                 indexManager.dropIndexes();
             }
 
-            if (createIndexes) {
+            if (createIndexes && !config.getIndexes().isEmpty()) {
                 if (!quiet) {
                     System.out.println("Creating indexes...");
                 }
@@ -119,6 +124,8 @@ public class QueryCommand implements Callable<Integer> {
                 if (!quiet) {
                     System.out.println("Indexes ready.\n");
                 }
+            } else if (!quiet && config.getIndexes().isEmpty()) {
+                System.out.println("WARNING: No indexes defined in config file!\n");
             }
 
             // Filter queries if specific name provided
