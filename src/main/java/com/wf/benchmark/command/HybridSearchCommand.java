@@ -32,10 +32,10 @@ public class HybridSearchCommand implements Callable<Integer> {
     @Option(names = {"-j", "--jdbc-url"}, description = "Oracle JDBC connection URL", required = true)
     private String jdbcUrl;
 
-    @Option(names = {"-u", "--username"}, description = "Database username", required = true)
+    @Option(names = {"-u", "--username"}, description = "Database username (optional if embedded in JDBC URL)")
     private String username;
 
-    @Option(names = {"-p", "--password"}, description = "Database password", required = true)
+    @Option(names = {"-p", "--password"}, description = "Database password (optional if embedded in JDBC URL)")
     private String password;
 
     @Option(names = {"--collection"}, description = "Collection/table name", defaultValue = "identity")
@@ -163,17 +163,42 @@ public class HybridSearchCommand implements Callable<Integer> {
     }
 
     private DataSource createDataSource() {
+        // Check if credentials are embedded in the JDBC URL (format: jdbc:oracle:thin:user/pass@...)
+        String effectiveUrl = jdbcUrl;
+        String effectiveUsername = username;
+        String effectivePassword = password;
+
+        // Parse embedded credentials from Oracle thin URL: jdbc:oracle:thin:user/pass@...
+        if (jdbcUrl.startsWith("jdbc:oracle:thin:") && jdbcUrl.contains("@")) {
+            String afterThin = jdbcUrl.substring("jdbc:oracle:thin:".length());
+            int atIndex = afterThin.indexOf("@");
+            if (atIndex > 0) {
+                String credsPart = afterThin.substring(0, atIndex);
+                int slashIndex = credsPart.indexOf("/");
+                if (slashIndex > 0) {
+                    // Credentials are embedded - extract them
+                    effectiveUsername = credsPart.substring(0, slashIndex);
+                    effectivePassword = credsPart.substring(slashIndex + 1);
+                    // Remove credentials from URL for HikariCP (it will add them separately)
+                    effectiveUrl = "jdbc:oracle:thin:@" + afterThin.substring(atIndex + 1);
+                    if (!quiet) {
+                        System.out.println("Detected embedded credentials in JDBC URL");
+                    }
+                }
+            }
+        }
+
         if (!quiet) {
             System.out.println("Creating connection pool...");
-            System.out.println("  JDBC URL: " + jdbcUrl.substring(0, Math.min(50, jdbcUrl.length())) + "...");
-            System.out.println("  Username: " + username);
+            System.out.println("  JDBC URL: " + effectiveUrl.substring(0, Math.min(50, effectiveUrl.length())) + "...");
+            System.out.println("  Username: " + effectiveUsername);
             System.out.println("  Pool size: " + poolSize);
         }
 
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(jdbcUrl);
-        config.setUsername(username);
-        config.setPassword(password);
+        config.setJdbcUrl(effectiveUrl);
+        config.setUsername(effectiveUsername);
+        config.setPassword(effectivePassword);
         config.setMaximumPoolSize(poolSize);
         config.setMinimumIdle(2);
         config.setConnectionTimeout(30000);
