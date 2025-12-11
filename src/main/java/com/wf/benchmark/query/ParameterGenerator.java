@@ -5,6 +5,7 @@ import com.mongodb.client.MongoDatabase;
 import com.wf.benchmark.config.QueryConfig.ParameterDefinition;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -20,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Generates parameter values for query execution based on configuration.
+ * Supports correlated parameters that extract multiple fields from the same document.
  */
 public class ParameterGenerator {
 
@@ -32,6 +34,14 @@ public class ParameterGenerator {
     private final MongoDatabase database;
     private final Map<String, List<Object>> loadedValueCache = new ConcurrentHashMap<>();
 
+    // Cache for full documents by correlation group (collection -> list of documents)
+    private final Map<String, List<Document>> correlatedDocumentCache = new ConcurrentHashMap<>();
+
+    // Thread-local storage for current correlation group selections
+    // Maps correlation group name -> currently selected document
+    private final ThreadLocal<Map<String, Document>> currentCorrelatedDocuments =
+        ThreadLocal.withInitial(HashMap::new);
+
     public ParameterGenerator(Map<String, ParameterDefinition> parameterDefs) {
         this(parameterDefs, null);
     }
@@ -43,17 +53,102 @@ public class ParameterGenerator {
 
     /**
      * Substitute parameters in a filter document with generated values.
+     * First selects random documents for any correlation groups, then extracts values.
      */
     public Document substituteParameters(Document filter) {
         if (filter == null || parameterDefs == null || parameterDefs.isEmpty()) {
             return filter;
         }
 
+        // Clear previous correlation group selections for this substitution
+        currentCorrelatedDocuments.get().clear();
+
+        // Pre-select documents for all correlation groups
+        selectCorrelatedDocuments();
+
         Document result = new Document();
         for (Map.Entry<String, Object> entry : filter.entrySet()) {
             result.put(entry.getKey(), substituteValue(entry.getValue()));
         }
         return result;
+    }
+
+    /**
+     * Pre-select random documents for each correlation group.
+     * All parameters in the same group will extract values from the same document.
+     */
+    private void selectCorrelatedDocuments() {
+        Map<String, Document> selections = currentCorrelatedDocuments.get();
+
+        for (Map.Entry<String, ParameterDefinition> entry : parameterDefs.entrySet()) {
+            ParameterDefinition paramDef = entry.getValue();
+            String group = paramDef.getCorrelationGroup();
+
+            if (group != null && !selections.containsKey(group)) {
+                // Need to select a document for this group
+                String collection = paramDef.getCollection();
+                if (collection == null) {
+                    throw new IllegalArgumentException(
+                        "Correlated parameter '" + entry.getKey() +
+                        "' requires 'collection' to be specified");
+                }
+
+                Document selectedDoc = selectRandomDocument(collection);
+                if (selectedDoc != null) {
+                    selections.put(group, selectedDoc);
+                    log.debug("Selected document for correlation group '{}': {}",
+                        group, selectedDoc.get("_id"));
+                } else {
+                    log.warn("No documents found for correlation group '{}' in collection '{}'",
+                        group, collection);
+                }
+            }
+        }
+    }
+
+    /**
+     * Select a random document from the document cache for a collection.
+     */
+    private Document selectRandomDocument(String collection) {
+        List<Document> documents = correlatedDocumentCache.get(collection);
+        if (documents == null) {
+            documents = loadDocumentsForCorrelation(collection);
+            correlatedDocumentCache.put(collection, documents);
+        }
+
+        if (documents.isEmpty()) {
+            return null;
+        }
+
+        Random random = ThreadLocalRandom.current();
+        return documents.get(random.nextInt(documents.size()));
+    }
+
+    /**
+     * Load full documents from a collection for correlated parameter extraction.
+     */
+    private List<Document> loadDocumentsForCorrelation(String collectionName) {
+        if (database == null) {
+            throw new IllegalStateException(
+                "Database not configured for correlated parameters. " +
+                "Use constructor with MongoDatabase parameter.");
+        }
+
+        log.info("Loading documents from {} for correlated parameter extraction", collectionName);
+
+        MongoCollection<Document> collection = database.getCollection(collectionName);
+        List<Document> documents = new ArrayList<>();
+
+        try (var cursor = collection.find()
+                .limit(DEFAULT_SAMPLE_SIZE)
+                .iterator()) {
+            while (cursor.hasNext()) {
+                documents.add(cursor.next());
+            }
+        }
+
+        log.info("Loaded {} documents from {} for correlation", documents.size(), collectionName);
+        return documents;
     }
 
     private Object substituteValue(Object value) {
@@ -80,6 +175,12 @@ public class ParameterGenerator {
             throw new IllegalArgumentException("Unknown parameter: " + paramName);
         }
 
+        // Check if this is a correlated parameter
+        String correlationGroup = paramDef.getCorrelationGroup();
+        if (correlationGroup != null) {
+            return generateFromCorrelatedDocument(paramName, paramDef, correlationGroup);
+        }
+
         return switch (paramDef.getType()) {
             case "random_range" -> generateRandomRange(paramDef);
             case "random_choice" -> generateRandomChoice(paramDef);
@@ -89,6 +190,40 @@ public class ParameterGenerator {
             case "random_from_loaded" -> generateRandomFromLoaded(paramDef);
             default -> throw new IllegalArgumentException("Unknown parameter type: " + paramDef.getType());
         };
+    }
+
+    /**
+     * Generate a value by extracting from a pre-selected correlated document.
+     */
+    private Object generateFromCorrelatedDocument(String paramName, ParameterDefinition paramDef, String group) {
+        Document doc = currentCorrelatedDocuments.get().get(group);
+        if (doc == null) {
+            throw new IllegalStateException(
+                "No document selected for correlation group '" + group +
+                "'. Parameter: " + paramName);
+        }
+
+        String field = paramDef.getField();
+        if (field == null) {
+            throw new IllegalArgumentException(
+                "Correlated parameter '" + paramName + "' requires 'field' to be specified");
+        }
+
+        // Extract value from the correlated document
+        List<Object> values = extractAllNestedValues(doc, field);
+        if (values.isEmpty()) {
+            log.warn("No value found for field '{}' in correlated document for parameter '{}'",
+                field, paramName);
+            return null;
+        }
+
+        // If multiple values (e.g., from array), pick a random one
+        if (values.size() == 1) {
+            return values.get(0);
+        }
+
+        Random random = ThreadLocalRandom.current();
+        return values.get(random.nextInt(values.size()));
     }
 
     private Object generateRandomRange(ParameterDefinition paramDef) {
@@ -367,5 +502,7 @@ public class ParameterGenerator {
     public void reset() {
         sequentialCounters.clear();
         loadedValueCache.clear();
+        correlatedDocumentCache.clear();
+        currentCorrelatedDocuments.get().clear();
     }
 }

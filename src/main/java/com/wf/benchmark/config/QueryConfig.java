@@ -215,6 +215,8 @@ public class QueryConfig {
         private String pattern; // for random_pattern type
         private String collection; // for random_from_loaded type
         private String field; // for random_from_loaded type
+        private String correlationGroup; // for correlated parameters - params in same group use same document
+        private List<String> fields; // for loading multiple fields from same document
 
         public String getType() {
             return type;
@@ -278,6 +280,22 @@ public class QueryConfig {
 
         public void setField(String field) {
             this.field = field;
+        }
+
+        public String getCorrelationGroup() {
+            return correlationGroup;
+        }
+
+        public void setCorrelationGroup(String correlationGroup) {
+            this.correlationGroup = correlationGroup;
+        }
+
+        public List<String> getFields() {
+            return fields;
+        }
+
+        public void setFields(List<String> fields) {
+            this.fields = fields;
         }
     }
 
@@ -399,6 +417,12 @@ public class QueryConfig {
                         }
                         if (p.containsKey("field")) {
                             paramDef.setField((String) p.get("field"));
+                        }
+                        if (p.containsKey("correlationGroup")) {
+                            paramDef.setCorrelationGroup((String) p.get("correlationGroup"));
+                        }
+                        if (p.containsKey("fields")) {
+                            paramDef.setFields((List<String>) p.get("fields"));
                         }
                         paramDefs.put(entry.getKey(), paramDef);
                     }
