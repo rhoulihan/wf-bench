@@ -130,13 +130,12 @@ public class FuzzySearchService {
      * Build a fuzzy search term for Oracle Text CONTAINS operator.
      * Uses the FUZZY operator for typo-tolerant matching.
      *
-     * Syntax: fuzzy((term), minScore, maxExpansions, weight)
-     * - minScore: minimum edit distance similarity (1-100, default 60)
-     * - maxExpansions: max terms to expand to (default 100)
-     * - weight: boost factor (default 1.0)
+     * Syntax for JSON Search Index: fuzzy(term)
+     * - With JSON Search Index, FUZZY only takes the term
+     * - minScore is applied via global fuzzy settings or SCORE threshold
      *
      * For multi-word searches, each word gets the FUZZY operator and they're combined with AND.
-     * Example: "JOHN SMITH" -> "fuzzy((JOHN),60,100,1) AND fuzzy((SMITH),60,100,1)"
+     * Example: "JOHN SMITH" -> "fuzzy(JOHN) AND fuzzy(SMITH)"
      */
     private String buildFuzzySearchTerm(String term) {
         if (term == null || term.isBlank()) {
@@ -163,9 +162,8 @@ public class FuzzySearchService {
             if (i > 0) {
                 fuzzyExpr.append(" AND ");
             }
-            // fuzzy((word), minScore, maxExpansions, weight)
-            fuzzyExpr.append("fuzzy((").append(words[i]).append("),")
-                     .append(minScore).append(",100,1)");
+            // Simple fuzzy syntax for JSON Search Index
+            fuzzyExpr.append("fuzzy(").append(words[i]).append(")");
         }
 
         return fuzzyExpr.toString();
