@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Service for fuzzy text search using Oracle Text CONTAINS with FUZZY operator.
@@ -140,6 +141,13 @@ public class FuzzySearchService {
             """.formatted(collection);
     }
 
+    // Oracle Text reserved words that cannot be used as search terms
+    private static final Set<String> ORACLE_TEXT_RESERVED_WORDS = Set.of(
+        "AND", "OR", "NOT", "NEAR", "WITHIN", "ABOUT", "ACCUM", "BT", "BTG", "BTI", "BTP",
+        "EQUIV", "FUZZY", "HASPATH", "INPATH", "MDATA", "MINUS", "NT", "NTG", "NTI", "NTP",
+        "PT", "RT", "SQE", "SYN", "TR", "TRSYN", "TT", "WEIGHT"
+    );
+
     /**
      * Build a fuzzy search term for Oracle Text CONTAINS operator.
      * Uses the FUZZY operator for typo-tolerant matching.
@@ -150,6 +158,8 @@ public class FuzzySearchService {
      *
      * For multi-word searches, each word gets the FUZZY operator and they're combined with AND.
      * Example: "JOHN SMITH" -> "fuzzy(JOHN) AND fuzzy(SMITH)"
+     *
+     * Reserved words (AND, OR, NOT, etc.) are escaped with braces: {AND}
      */
     private String buildFuzzySearchTerm(String term) {
         if (term == null || term.isBlank()) {
@@ -170,14 +180,33 @@ public class FuzzySearchService {
 
         // Split into words and create fuzzy expression for each
         String[] words = sanitized.split("\\s+");
-        StringBuilder fuzzyExpr = new StringBuilder();
+        List<String> validWords = new ArrayList<>();
 
-        for (int i = 0; i < words.length; i++) {
+        for (String word : words) {
+            // Skip empty words and very short words (less than 2 chars)
+            if (word.isEmpty() || word.length() < 2) {
+                continue;
+            }
+            // Skip Oracle Text reserved words - they cannot be searched with fuzzy
+            if (ORACLE_TEXT_RESERVED_WORDS.contains(word)) {
+                log.debug("Skipping Oracle Text reserved word: {}", word);
+                continue;
+            }
+            validWords.add(word);
+        }
+
+        if (validWords.isEmpty()) {
+            log.warn("No valid words remain after filtering reserved words from: {}", term);
+            return null;
+        }
+
+        StringBuilder fuzzyExpr = new StringBuilder();
+        for (int i = 0; i < validWords.size(); i++) {
             if (i > 0) {
                 fuzzyExpr.append(" AND ");
             }
             // Simple fuzzy syntax for JSON Search Index
-            fuzzyExpr.append("fuzzy(").append(words[i]).append(")");
+            fuzzyExpr.append("fuzzy(").append(validWords.get(i)).append(")");
         }
 
         return fuzzyExpr.toString();

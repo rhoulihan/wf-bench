@@ -293,14 +293,14 @@ The MongoDB API for Oracle supports only B-tree indexes. Advanced search feature
 
 ### Hybrid Search Performance Results
 
-Detailed benchmark results against live Oracle ADB (1M identity documents, 100 iterations + 10 warmup):
+Detailed benchmark results against live Oracle ADB (1M identity documents, 10 iterations + 3 warmup):
 
 | Query | Description | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Throughput | Docs |
 |-------|-------------|----------|----------|----------|----------|------------|------|
-| phonetic_name_search | Phonetic (SOUNDEX) name search | 10.31 | 9.65 | 14.55 | 18.03 | 97.0/s | 0.4 |
-| fuzzy_name_search | Fuzzy (JSON_TEXTCONTAINS) name search | 2.81 | 2.76 | 3.08 | 3.36 | 356.3/s | 0.0 |
-| hybrid_name_search | Combined phonetic + fuzzy search | 13.92 | 12.70 | 22.46 | 26.40 | 71.8/s | 0.4 |
-| fuzzy_business_search | Fuzzy business name search | 3.53 | 3.40 | 4.50 | 5.54 | 283.4/s | 0.0 |
+| phonetic_name_search | Phonetic (SOUNDEX) name search | 7.44 | 7.34 | 7.71 | 7.71 | 134.4/s | 1.2 |
+| fuzzy_name_search | Fuzzy (CONTAINS/FUZZY) name search | 4.47 | 3.91 | 9.11 | 9.11 | 223.9/s | 1.2 |
+| hybrid_name_search | Combined phonetic + fuzzy search | 12.28 | 12.16 | 13.45 | 13.45 | 81.5/s | 1.4 |
+| fuzzy_business_search | Fuzzy business name search | 6.04 | 5.64 | 9.28 | 9.28 | 165.5/s | 0.4 |
 | vector_semantic_search | Vector semantic similarity | Pending | - | - | - | - | - |
 
 #### Search Strategy Status
@@ -313,10 +313,11 @@ Detailed benchmark results against live Oracle ADB (1M identity documents, 100 i
 
 #### Key Performance Insights
 
-1. **Fuzzy search is fastest (2.8-3.5ms)**: JSON_TEXTCONTAINS with JSON Search Index provides excellent performance
-2. **Phonetic search is moderate (10.3ms avg)**: SOUNDEX function with full table scan
-3. **Hybrid combined is slowest (13.9ms avg)**: Combines both strategies with result deduplication
-4. **Vector search**: Requires ONNX model setup for semantic similarity
+1. **Fuzzy name search is fastest (4.5ms avg)**: CONTAINS with FUZZY operator provides excellent typo-tolerant matching
+2. **Phonetic search is fast (7.4ms avg)**: SOUNDEX function for sound-alike matching
+3. **Fuzzy business search (6.0ms avg)**: Now properly filters Oracle Text reserved words (AND, OR, NOT, etc.)
+4. **Hybrid combined (12.3ms avg)**: Combines phonetic + fuzzy with result deduplication
+5. **Vector search**: Requires ONNX model setup for semantic similarity
 
 #### Hybrid Search Graceful Degradation
 
