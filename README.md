@@ -243,6 +243,45 @@ The tool generates four collections matching a customer information system:
 - Full and last-4 account number fields for different search patterns
 - Tokenized account number for security scenarios
 
+## Recent Benchmark Results
+
+**Environment:** Oracle Autonomous JSON Database (MongoDB API), LARGE scale (1M identity, 1M address, 2.5M phone, 1M account)
+
+### High Performance Queries (< 10ms avg)
+
+| Query | Description | Avg | P95 | Throughput |
+|-------|-------------|-----|-----|------------|
+| os2_account_full_search | Full account number lookup | 4.58ms | 23.89ms | 218.5/sec |
+| os3_account_tokenized_search | Tokenized account lookup | 5.29ms | 22.88ms | 188.9/sec |
+| os4_phone_full_search | Full phone number lookup | 5.68ms | 34.59ms | 176.2/sec |
+| uc7_email_phone_account | Email search (correlated) | 5.69ms | 34.69ms | 175.6/sec |
+| uc6_email_account_last4 | Email + account last 4 | 6.02ms | 36.96ms | 166.1/sec |
+| account_last4_search | Account last 4 digits | 6.45ms | 6.96ms | 155.0/sec |
+| wr_e_email_search | Email address (embedded) | 6.58ms | 35.74ms | 152.0/sec |
+| wr_s_id_document_search | Driver's License/Passport | 6.69ms | 44.70ms | 149.6/sec |
+| uc1_phone_ssn_last4 | Phone + SSN last 4 | 7.58ms | 44.93ms | 131.9/sec |
+| os1_tin_full_search | Full 9-digit TIN/SSN | 9.77ms | 73.98ms | 102.4/sec |
+
+### Medium Performance Queries (10-50ms avg)
+
+| Query | Description | Avg | P95 | Throughput |
+|-------|-------------|-----|-----|------------|
+| wr_h_full_name_search | First/Last name (correlated) | 10.12ms | 73.86ms | 98.8/sec |
+| wr_f_dob_with_name | DOB + name (correlated) | 11.57ms | 91.46ms | 86.4/sec |
+| wr_c_zip_only | ZIP code only | 12.33ms | 86.85ms | 81.1/sec |
+| wr_q_tin_last4_with_name | TIN last 4 + name | 13.62ms | 80.51ms | 73.4/sec |
+| uc4_ssn_last4_search | SSN last 4 digits | 18.27ms | 21.62ms | 54.7/sec |
+| account_by_customer | Accounts for customer | 25.30ms | 205.57ms | 39.5/sec |
+
+### Address Searches (Higher Latency)
+
+| Query | Description | Avg | P95 | Throughput |
+|-------|-------------|-----|-----|------------|
+| uc5_address_search | City/State/ZIP (correlated) | 239.01ms | 473.34ms | 4.2/sec |
+| wr_b_address_with_name | State/ZIP (correlated) | 343.53ms | 700.42ms | 2.9/sec |
+
+*See [results/BENCHMARK_SUMMARY.md](results/BENCHMARK_SUMMARY.md) for detailed results including aggregation queries.*
+
 ## Sample Output
 
 ### Load Results
