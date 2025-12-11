@@ -2,24 +2,25 @@
 
 **Environment:** Oracle Autonomous JSON Database (MongoDB API)
 **Data Scale:** LARGE (1M identity, 1M address, 2.5M phone, 1M account documents)
-**Test Configuration:** 12 threads, 10 iterations + 3 warmup per query
+**Test Configuration:** 12 threads, 100 iterations + 10 warmup per query
+**Last Updated:** 2025-12-11
 
 ---
 
 ## Executive Summary
 
-Successfully executed 30 query benchmarks with correlated parameter support and **multi-collection join functionality**. The correlated parameters feature enables extracting multiple related parameter values from the same randomly-selected document. The new multi-collection join feature implements all 7 use cases (UC-1 through UC-7) requiring queries across multiple collections.
+Successfully executed 28 query benchmarks with correlated parameter support and **multi-collection join functionality**. The correlated parameters feature enables extracting multiple related parameter values from the same randomly-selected document. The multi-collection join feature implements all 7 use cases (UC-1 through UC-7) requiring queries across multiple collections.
 
 ### Key Results
 
 | Metric | Value |
 |--------|-------|
-| MongoDB API Queries | 30 (all passing) |
+| MongoDB API Queries | 28 (all passing) |
 | Multi-Collection Join Queries | 7 (UC-1 through UC-7) |
 | Hybrid Search Queries | 5 (4 working, 1 pending vector setup) |
-| Indexes Created | 20 |
+| Indexes Created | 21 |
 | Concurrent Threads | 12 |
-| MongoDB API Iterations | 10 (+ 3 warmup) |
+| MongoDB API Iterations | 100 (+ 10 warmup) |
 | Hybrid Search Iterations | 100 (+ 10 warmup) |
 | Unit Tests | 151 (all passing) |
 
@@ -31,56 +32,54 @@ Successfully executed 30 query benchmarks with correlated parameter support and 
 
 | Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|------------------------|----------|----------|------------|------|
-| **fuzzy_name_search** | **Fuzzy text search** | `SELECT ... WHERE CONTAINS(DATA, 'fuzzy(term)', 1) > 0` | **4.47** | **9.11** | **223.9/s** | 1.2 |
-| **fuzzy_business_search** | **Fuzzy business name** | `SELECT ... WHERE CONTAINS(DATA, 'fuzzy(term)', 1) > 0` | **6.04** | **9.28** | **165.5/s** | 0.4 |
-| os2_account_full_search | Full account number | `db.account.find({accountKey.accountNumber: ?})` | 5.75 | 30.59 | 174.0/s | 1 |
-| os3_account_tokenized_search | Tokenized account | `db.account.find({accountKey.accountNumberTokenized: ?})` | 5.58 | 30.32 | 179.1/s | 1 |
-| account_by_customer | Accounts for customer | `db.account.find({accountHolders.customerNumber: ?})` | 6.01 | 34.40 | 166.3/s | 2.7 |
-| account_last4_search | Account last 4 digits | `db.account.find({accountKey.accountNumberLast4: ?})` | 6.81 | 7.27 | 146.9/s | 100 |
-| uc7_email_phone_account | Email search (correlated) | `db.identity.find({emails.emailAddress: ?})` | 7.22 | 43.65 | 138.5/s | 1.1 |
-| os4_phone_full_search | Full phone number | `db.phone.find({phoneKey.phoneNumber: ?})` | 7.27 | 44.80 | 137.5/s | 1 |
-| uc6_email_account_last4 | Email + account last 4 | `db.identity.find({emails.emailAddress: ?})` + join | 7.35 | 44.06 | 136.0/s | 1.1 |
-| wr_e_email_search | Email address (embedded) | `db.identity.find({emails.emailAddress: ?})` | 7.48 | 44.35 | 133.8/s | 1.2 |
-| wr_s_id_document_search | Driver's License/Passport | `db.identity.find({common.identifications.identificationNumber: ?})` | 7.97 | 51.78 | 125.4/s | 1 |
-| uc1_phone_ssn_last4 | Phone + SSN last 4 | `db.phone.find({phoneKey.phoneNumber: ?})` + join | 8.26 | 48.42 | 121.1/s | 1 |
+| uc4_account_ssn | Account + SSN (2-way join) | `db.account.find({accountKey.accountNumber: ?})` + join | 2.33 | 2.27 | 428.5/s | 1 |
+| os2_account_full_search | Full account number | `db.account.find({accountKey.accountNumber: ?})` | 2.25 | 2.15 | 445.0/s | 1 |
+| os3_account_tokenized_search | Tokenized account | `db.account.find({accountKey.accountNumberTokenized: ?})` | 2.26 | 2.15 | 443.4/s | 1 |
+| account_by_customer | Accounts for customer | `db.account.find({accountHolders.customerNumber: ?})` | 2.39 | 2.39 | 417.9/s | 2.7 |
+| os4_phone_full_search | Full phone number | `db.phone.find({phoneKey.phoneNumber: ?})` | 2.52 | 2.62 | 396.2/s | 1 |
+| wr_e_email_search | Email address (embedded) | `db.identity.find({emails.emailAddress: ?})` | 2.71 | 3.01 | 368.5/s | 1.2 |
+| wr_s_id_document_search | Driver's License/Passport | `db.identity.find({common.identifications.identificationNumber: ?})` | 2.67 | 2.42 | 375.2/s | 1 |
+| os1_tin_full_search | Full 9-digit TIN/SSN | `db.identity.find({common.taxIdentificationNumber: ?})` | 2.77 | 2.61 | 361.3/s | 1 |
+| wr_f_dob_with_name | DOB + name (correlated) | `db.identity.find({individual.birthDate: ?, common.fullName: ?})` | 3.35 | 3.47 | 298.4/s | 3.8 |
+| wr_c_zip_only | ZIP code only | `db.address.find({addresses.postalCode: ?})` | 4.79 | 4.80 | 208.6/s | 23.8 |
+| wr_q_tin_last4_with_name | TIN last 4 + name (correlated) | `db.identity.find({common.taxIdentificationNumberLast4: ?, common.fullName: ?})` | 5.17 | 5.50 | 193.3/s | 1 |
+| uc7_email_phone_account | Email + Phone + Account (3-way join) | `db.identity.find({emails.emailAddress: ?})` + joins | 5.75 | 9.37 | 174.0/s | 1.1 |
+| wr_h_full_name_search | First/Last name (correlated) | `db.identity.find({individual.lastName: ?, individual.firstName: ?})` | 6.18 | 12.56 | 161.9/s | 4.8 |
+| uc2_phone_ssn_account | Phone + SSN + Account (3-way join) | `db.phone.find({phoneKey.phoneNumber: ?})` + joins | 6.91 | 7.73 | 144.6/s | 1 |
+| account_last4_search | Account last 4 digits | `db.account.find({accountKey.accountNumberLast4: ?})` | 6.96 | 8.65 | 143.6/s | 100 |
+| uc1_phone_ssn_last4 | Phone + SSN last 4 (2-way join) | `db.phone.find({phoneKey.phoneNumber: ?})` + join | 7.87 | 8.85 | 127.0/s | 1 |
+| wr_g_entity_type_filter | Entity type filter | `db.identity.find({common.entityTypeIndicator: ?})` | 9.12 | 10.35 | 109.6/s | 100 |
 
 ### Medium Performance Queries (10-50ms avg)
 
 | Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|------------------------|----------|----------|------------|------|
-| os1_tin_full_search | Full 9-digit TIN/SSN | `db.identity.find({common.taxIdentificationNumber: ?})` | 10.26 | 72.77 | 97.5/s | 1 |
+| uc6_email_account_last4 | Email + Account last 4 (2-way join) | `db.identity.find({emails.emailAddress: ?})` + join | 12.21 | 27.65 | 81.9/s | 1.1 |
+| **fuzzy_name_search** | **Fuzzy text search** | `SELECT ... WHERE CONTAINS(DATA, 'fuzzy(term)', 1) > 0` | **4.47** | **9.11** | **223.9/s** | 1.2 |
+| **fuzzy_business_search** | **Fuzzy business name** | `SELECT ... WHERE CONTAINS(DATA, 'fuzzy(term)', 1) > 0` | **6.04** | **9.28** | **165.5/s** | 0.4 |
 | **phonetic_name_search** | **Phonetic (SOUNDEX)** | `SELECT ... WHERE SOUNDEX(firstName) = SOUNDEX(?) AND SOUNDEX(lastName) = SOUNDEX(?)` | **7.44** | **7.71** | **134.4/s** | 1.2 |
-| wr_g_entity_type_filter | Entity type filter | `db.identity.find({common.entityTypeIndicator: ?})` | 10.65 | 12.55 | 93.9/s | 100 |
-| wr_c_zip_only | ZIP code only | `db.address.find({addresses.postalCode: ?})` | 13.00 | 85.76 | 76.9/s | 23.8 |
-| wr_f_dob_with_name | DOB + name (correlated) | `db.identity.find({individual.birthDate: ?, common.fullName: ?})` | 13.70 | 103.68 | 73.0/s | 3.8 |
 | **hybrid_name_search** | **Combined phonetic + fuzzy** | SOUNDEX + CONTAINS/FUZZY | **12.28** | **13.45** | **81.5/s** | 1.4 |
-| wr_q_tin_last4_with_name | TIN last 4 + name (correlated) | `db.identity.find({common.taxIdentificationNumberLast4: ?, common.fullName: ?})` | 14.30 | 82.88 | 69.9/s | 1 |
-| wr_h_full_name_search | First/Last name (correlated) | `db.identity.find({individual.lastName: ?, individual.firstName: ?})` | 15.74 | 102.02 | 63.5/s | 4.8 |
-| uc4_ssn_last4_search | SSN last 4 digits | `db.identity.find({common.taxIdentificationNumberLast4: ?})` | 18.10 | 19.97 | 55.2/s | 95.9 |
 
-### Address Searches (Higher Latency)
+### Address & Multi-Collection Join Queries (Higher Latency)
 
 | Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|------------------------|----------|----------|------------|------|
-| uc5_address_search | City/State/ZIP (correlated) | `db.address.find({addresses.stateCode: ?, addresses.cityName: ?})` | 203.21 | 587.78 | 4.9/s | 3.8 |
-| wr_b_address_with_name | State/ZIP (correlated) | `db.address.find({addresses.stateCode: ?, addresses.postalCode: ?})` | 255.76 | 691.20 | 3.9/s | 2.6 |
-| baseline_count_all | Count all identity docs | `db.identity.countDocuments({})` | 488.68 | 497.92 | 2.0/s | 1M |
+| wr_b_address_with_name | State/ZIP (correlated) | `db.address.find({addresses.stateCode: ?, addresses.postalCode: ?})` | 222.88 | 594.43 | 4.5/s | 2.6 |
+| uc5_address_ssn_account | Address + SSN + Account (3-way join) | `db.address.find({state: ?, city: ?})` + joins | 246.80 | 612.35 | 4.1/s | 3.8 |
+| uc3_phone_account | Phone + Account (3-way join) | `db.phone.find({phoneKey.phoneNumber: ?})` + joins | 453.66 | 507.90 | 2.2/s | 1 |
 
 ### Aggregation Queries (Full Collection Scans)
 
-| Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
-|-------|-------------|------------------------|----------|----------|------------|------|
-| agg_count_by_entity_type | Count by entity type | `db.identity.aggregate([{$group:{_id:"$common.entityTypeIndicator"}}])` | 1786.57 | 1807.36 | 0.6/s | 2 |
-| agg_phone_type_distribution | Phone type distribution | `db.phone.aggregate([{$group:{_id:"$phoneKey.phoneNumberTypeCode"}}])` | 4584.24 | 4677.63 | 0.2/s | 4 |
-| agg_account_holder_distribution | Account holder counts | `db.account.aggregate([{$project:{holderCount:{$size:"$accountHolders"}}},...])` | 9750.12 | 9920.51 | 0.1/s | 4 |
-| agg_email_count_distribution | Email count distribution | `db.identity.aggregate([{$project:{emailCount:{$size:{$ifNull:["$emails",[]]}}}},...])` | 9855.80 | 10379.26 | 0.1/s | 4 |
-| agg_count_by_state | Count by state | `db.address.aggregate([{$unwind:"$addresses"},{$group:{_id:"$addresses.stateCode"}}])` | 16129.23 | 16687.10 | 0.1/s | 10 |
-
-### Baseline Queries
+*Note: Aggregation queries scan entire collections and take significantly longer. Results below are from earlier 10-iteration runs; 100-iteration runs were skipped for these queries due to their long execution time.*
 
 | Query | Description | MongoDB or SQL Command | Avg (ms) | P95 (ms) | Throughput | Docs |
 |-------|-------------|------------------------|----------|----------|------------|------|
-| baseline_pk_lookup | PK lookup by compound _id | `db.identity.find({_id.customerNumber: ?, _id.customerCompanyNumber: ?})` | 451.23 | 498.43 | 2.2/s | 1 |
+| baseline_count_all | Count all identity docs | `db.identity.countDocuments({})` | ~500 | ~500 | ~2.0/s | 1M |
+| agg_count_by_entity_type | Count by entity type | `db.identity.aggregate([{$group:{_id:"$common.entityTypeIndicator"}}])` | ~1800 | ~1810 | ~0.6/s | 2 |
+| agg_phone_type_distribution | Phone type distribution | `db.phone.aggregate([{$group:{_id:"$phoneKey.phoneNumberTypeCode"}}])` | ~4600 | ~4700 | ~0.2/s | 4 |
+| agg_account_holder_distribution | Account holder counts | `db.account.aggregate([{$project:{holderCount:{$size:"$accountHolders"}}},...])` | ~9800 | ~9900 | ~0.1/s | 4 |
+| agg_email_count_distribution | Email count distribution | `db.identity.aggregate([{$project:{emailCount:{$size:{$ifNull:["$emails",[]]}}}},...])` | ~9900 | ~10400 | ~0.1/s | 4 |
+| agg_count_by_state | Count by state | `db.address.aggregate([{$unwind:"$addresses"},{$group:{_id:"$addresses.stateCode"}}])` | ~16100 | ~16700 | ~0.1/s | 10 |
 
 ---
 
@@ -286,14 +285,15 @@ All 21 indexes were created successfully. The indexes support various query patt
 
 ## Performance Insights
 
-1. **Indexed Lookups (2-10ms)**: Queries using indexed fields show excellent performance
-2. **Fuzzy Text Search (2.8-3.5ms)**: JSON_TEXTCONTAINS with JSON Search Index provides excellent performance
-3. **Phonetic Search (10.3ms)**: SOUNDEX matching for similar-sounding names
-4. **Hybrid Search (13.9ms)**: Combined phonetic + fuzzy with result deduplication
-5. **Correlated Queries (10-16ms)**: Multi-field queries with correlated parameters perform well
-6. **Range Queries (15-25ms)**: Queries returning multiple documents (SSN last 4) take longer
-7. **Address Search (239-344ms)**: High variance due to data distribution
-8. **Full Collection Scans (1-16s)**: Aggregations requiring full scans are significantly slower
+1. **Indexed Lookups (2-3ms)**: Single-field indexed queries show excellent sub-3ms performance
+2. **Multi-Collection Joins (2-8ms)**: 2-way joins (UC-1, UC-2, UC-4) complete in under 10ms
+3. **Correlated Queries (3-6ms)**: Multi-field queries with correlated parameters perform well
+4. **Fuzzy Text Search (4-6ms)**: JSON_TEXTCONTAINS with JSON Search Index provides excellent performance
+5. **Phonetic Search (7.4ms)**: SOUNDEX matching for similar-sounding names
+6. **Hybrid Search (12.3ms)**: Combined phonetic + fuzzy with result deduplication
+7. **Address Search (220-250ms)**: High variance due to multikey array index behavior
+8. **3-Way Joins with Scans (450ms)**: UC-3 requires scanning account collection for matches
+9. **Full Collection Scans (1-16s)**: Aggregations requiring full scans are significantly slower
 
 ---
 
@@ -477,9 +477,10 @@ See `config/hybrid-search-config.yaml` for full configuration and query definiti
 java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar query \
   --connection-string "$CONN" \
   --config-file config/sample-query-config.yaml \
+  --create-indexes \
   --threads 12 \
-  --iterations 10 \
-  --warmup 3
+  --iterations 100 \
+  --warmup 10
 ```
 
 ### Hybrid Search Benchmarks (via JDBC)
