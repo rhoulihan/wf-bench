@@ -14,7 +14,7 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 
 | Metric | Value |
 |--------|-------|
-| MongoDB API Queries | 26 (25 passed, 1 failed) |
+| MongoDB API Queries | 26 (all passing) |
 | Hybrid Search Queries | 5 (4 working, 1 pending vector setup) |
 | Indexes Created | 20 |
 | Concurrent Threads | 12 |
@@ -74,11 +74,11 @@ Successfully executed 26 query benchmarks with correlated parameter support. The
 | agg_email_count_distribution | Email count distribution | 10084.35 | 11264.00 | 0.1/s | 4 |
 | agg_count_by_state | Count by state | 15919.51 | 16465.92 | 0.1/s | 10 |
 
-### Failed Queries
+### Baseline Queries
 
-| Query | Description | Issue |
-|-------|-------------|-------|
-| baseline_pk_lookup | PK lookup by customer number | Cannot extract `_id.customerNumber` from compound _id field |
+| Query | Description | Avg (ms) | P95 (ms) | Throughput | Notes |
+|-------|-------------|----------|----------|------------|-------|
+| baseline_pk_lookup | PK lookup by compound _id | 437.63 | 502.53 | 2.3/s | Correlated customerNumber + customerCompanyNumber |
 
 ---
 

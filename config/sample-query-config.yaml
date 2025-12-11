@@ -668,13 +668,19 @@ queries:
     type: "find"
     filter:
       _id.customerNumber: "${param:customerNumber}"
-      _id.customerCompanyNumber: 1
+      _id.customerCompanyNumber: "${param:customerCompanyNumber}"
     expectedResults: 1
     parameters:
       customerNumber:
         type: "random_from_loaded"
         collection: "identity"
         field: "_id.customerNumber"
+        correlationGroup: "identity_pk"
+      customerCompanyNumber:
+        type: "random_from_loaded"
+        collection: "identity"
+        field: "_id.customerCompanyNumber"
+        correlationGroup: "identity_pk"
     targetLatencyMs: 10
 
   # Count All Documents

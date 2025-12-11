@@ -400,8 +400,13 @@ public class ParameterGenerator {
         // Build projection for the field path
         Document projection = new Document();
         String[] parts = fieldPath.split("\\.");
-        projection.append(parts[0], 1);  // Project the root field
-        projection.append("_id", 0);      // Exclude _id
+        String rootField = parts[0];
+        projection.append(rootField, 1);  // Project the root field
+
+        // Only exclude _id if we're not querying an _id subfield
+        if (!rootField.equals("_id")) {
+            projection.append("_id", 0);
+        }
 
         List<Object> values = new ArrayList<>();
         try (var cursor = collection.find()
