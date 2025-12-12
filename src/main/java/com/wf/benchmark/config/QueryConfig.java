@@ -165,6 +165,123 @@ public class QueryConfig {
         }
     }
 
+    /**
+     * Definition for a $lookup aggregation stage.
+     * Supports the MongoDB API $lookup operator for multi-collection queries.
+     * Supports chained lookups for complex multi-collection joins.
+     */
+    public static class LookupDefinition {
+        private String from;           // Target collection to lookup
+        private String localField;     // Field in source documents to match
+        private String foreignField;   // Field in target collection to match
+        private String as;             // Name of the new array field for joined documents
+        private Document matchFilter;  // Optional $match filter after $lookup
+        private LookupDefinition nextLookup; // For chained lookups
+
+        public String getFrom() {
+            return from;
+        }
+
+        public void setFrom(String from) {
+            this.from = from;
+        }
+
+        public String getLocalField() {
+            return localField;
+        }
+
+        public void setLocalField(String localField) {
+            this.localField = localField;
+        }
+
+        public String getForeignField() {
+            return foreignField;
+        }
+
+        public void setForeignField(String foreignField) {
+            this.foreignField = foreignField;
+        }
+
+        public String getAs() {
+            return as;
+        }
+
+        public void setAs(String as) {
+            this.as = as;
+        }
+
+        public Document getMatchFilter() {
+            return matchFilter;
+        }
+
+        public void setMatchFilter(Document matchFilter) {
+            this.matchFilter = matchFilter;
+        }
+
+        public boolean hasMatchFilter() {
+            return matchFilter != null;
+        }
+
+        public LookupDefinition getNextLookup() {
+            return nextLookup;
+        }
+
+        public void setNextLookup(LookupDefinition nextLookup) {
+            this.nextLookup = nextLookup;
+        }
+
+        /**
+         * Generate the $lookup stage document.
+         */
+        public Document toLookupStage() {
+            Document lookupDoc = new Document()
+                .append("from", from)
+                .append("localField", localField)
+                .append("foreignField", foreignField)
+                .append("as", as);
+            return new Document("$lookup", lookupDoc);
+        }
+
+        /**
+         * Generate the $unwind stage document for this lookup.
+         */
+        public Document toUnwindStage() {
+            Document unwindDoc = new Document()
+                .append("path", "$" + as)
+                .append("preserveNullAndEmptyArrays", false);
+            return new Document("$unwind", unwindDoc);
+        }
+
+        /**
+         * Generate the $match stage document for filtering after lookup.
+         */
+        public Document toMatchStage() {
+            if (matchFilter == null) {
+                return null;
+            }
+            return new Document("$match", matchFilter);
+        }
+
+        /**
+         * Create a LookupDefinition from a YAML map structure.
+         */
+        @SuppressWarnings("unchecked")
+        public static LookupDefinition fromMap(Map<String, Object> map) {
+            LookupDefinition lookup = new LookupDefinition();
+            lookup.setFrom((String) map.get("from"));
+            lookup.setLocalField((String) map.get("localField"));
+            lookup.setForeignField((String) map.get("foreignField"));
+            lookup.setAs((String) map.get("as"));
+            if (map.containsKey("matchFilter")) {
+                lookup.setMatchFilter(new Document((Map<String, Object>) map.get("matchFilter")));
+            }
+            if (map.containsKey("lookup")) {
+                lookup.setNextLookup(fromMap((Map<String, Object>) map.get("lookup")));
+            }
+            return lookup;
+        }
+    }
+
     public static class QueryDefinition {
         private String name;
         private String description;
@@ -179,6 +296,7 @@ public class QueryConfig {
         private String requiresIndex;
         private Integer expectedResults;
         private JoinDefinition join; // For multi-collection queries
+        private LookupDefinition lookup; // For $lookup aggregation queries
 
         public String getName() {
             return name;
@@ -286,6 +404,56 @@ public class QueryConfig {
 
         public boolean hasJoin() {
             return join != null;
+        }
+
+        public LookupDefinition getLookup() {
+            return lookup;
+        }
+
+        public void setLookup(LookupDefinition lookup) {
+            this.lookup = lookup;
+        }
+
+        public boolean hasLookup() {
+            return lookup != null;
+        }
+
+        /**
+         * Generate a complete aggregation pipeline for $lookup queries.
+         * Includes $match, $lookup, $unwind, and optional filter stages.
+         *
+         * @return List of pipeline stage documents
+         */
+        public List<Document> generateLookupPipeline() {
+            if (lookup == null) {
+                return null;
+            }
+
+            List<Document> pipelineStages = new ArrayList<>();
+
+            // First stage: $match on initial filter
+            if (filter != null) {
+                pipelineStages.add(new Document("$match", filter));
+            }
+
+            // Add stages for each lookup in the chain
+            LookupDefinition currentLookup = lookup;
+            while (currentLookup != null) {
+                // $lookup stage
+                pipelineStages.add(currentLookup.toLookupStage());
+
+                // $unwind stage
+                pipelineStages.add(currentLookup.toUnwindStage());
+
+                // Optional $match stage for filtering
+                if (currentLookup.hasMatchFilter()) {
+                    pipelineStages.add(currentLookup.toMatchStage());
+                }
+
+                currentLookup = currentLookup.getNextLookup();
+            }
+
+            return pipelineStages;
         }
     }
 
@@ -519,6 +687,9 @@ public class QueryConfig {
                 }
                 if (q.containsKey("join")) {
                     queryDef.setJoin(JoinDefinition.fromMap((Map<String, Object>) q.get("join")));
+                }
+                if (q.containsKey("lookup")) {
+                    queryDef.setLookup(LookupDefinition.fromMap((Map<String, Object>) q.get("lookup")));
                 }
                 config.queries.add(queryDef);
             }

@@ -23,6 +23,7 @@ A Java CLI tool for benchmarking the MongoDB API for Oracle Database. Load test 
   - `fixed` - Constant value
 - **Correlated Parameters** - Extract multiple parameter values from the same document using `correlationGroup`, ensuring realistic query patterns (e.g., DOB + name from same person)
 - **Multi-Collection Joins** - Declarative YAML syntax for queries spanning multiple collections with chained joins (e.g., phone → identity → account)
+- **$lookup Aggregation** - Native MongoDB `$lookup` aggregation for multi-collection queries with key attribute matching and chained lookups
 
 ## Requirements
 
@@ -249,6 +250,89 @@ The tool generates four collections matching a customer information system:
 - Full and last-4 account number fields for different search patterns
 - Tokenized account number for security scenarios
 
+## $lookup Aggregation
+
+The MongoDB API for Oracle Database supports `$lookup` aggregation with key attributes for multi-collection queries. This enables efficient server-side joins without requiring multiple round-trips.
+
+### $lookup Configuration in YAML
+
+```yaml
+queries:
+  # UC-1: Phone + SSN Last 4 via $lookup
+  - name: "uc1_phone_ssn_lookup"
+    description: "UC-1: Phone + SSN via $lookup aggregation"
+    collection: "phone"
+    type: "aggregate"
+    filter:
+      phoneKey.phoneNumber: "${param:phoneNumber}"
+    lookup:
+      from: "identity"
+      localField: "phoneKey.customerNumber"
+      foreignField: "_id.customerNumber"
+      as: "identityDocs"
+      matchFilter:
+        identityDocs.common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+    parameters:
+      phoneNumber:
+        type: "random_from_loaded"
+        collection: "phone"
+        field: "phoneKey.phoneNumber"
+      ssnLast4:
+        type: "random_pattern"
+        pattern: "\\d{4}"
+
+  # UC-2: Phone + SSN + Account via chained $lookup
+  - name: "uc2_phone_ssn_account_lookup"
+    description: "UC-2: Phone + SSN + Account via chained $lookup"
+    collection: "phone"
+    type: "aggregate"
+    filter:
+      phoneKey.phoneNumber: "${param:phoneNumber}"
+    lookup:
+      from: "identity"
+      localField: "phoneKey.customerNumber"
+      foreignField: "_id.customerNumber"
+      as: "identityDocs"
+      matchFilter:
+        identityDocs.common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+      lookup:  # Chained lookup
+        from: "account"
+        localField: "identityDocs._id.customerNumber"
+        foreignField: "accountHolders.customerNumber"
+        as: "accountDocs"
+        matchFilter:
+          accountDocs.accountKey.accountNumberLast4: "${param:accountLast4}"
+```
+
+### Lookup Configuration Options
+
+| Option | Description | Required |
+|--------|-------------|----------|
+| `from` | Target collection to join | Yes |
+| `localField` | Field in source documents | Yes |
+| `foreignField` | Field in target collection | Yes |
+| `as` | Output array field name | Yes |
+| `matchFilter` | Post-lookup filter criteria | No |
+| `lookup` | Nested lookup for chained joins | No |
+
+### Generated Pipeline
+
+The tool automatically generates the aggregation pipeline:
+
+```javascript
+[
+  { $match: { "phoneKey.phoneNumber": "5551234567" } },
+  { $lookup: {
+      from: "identity",
+      localField: "phoneKey.customerNumber",
+      foreignField: "_id.customerNumber",
+      as: "identityDocs"
+  }},
+  { $unwind: { path: "$identityDocs", preserveNullAndEmptyArrays: false } },
+  { $match: { "identityDocs.common.taxIdentificationNumberLast4": "1234" } }
+]
+```
+
 ## Hybrid Search
 
 The MongoDB API for Oracle supports only B-tree indexes. For advanced search features, the tool provides hybrid search services that use SQL/JDBC:
@@ -414,7 +498,7 @@ wf_bench/
     │   │   ├── SqlJoinSearchService.java  # UC SQL JOIN queries
     │   │   └── SampleDataLoader.java      # UC parameter loading
     │   └── report/                # Output formatting
-    └── test/java/                 # Unit tests (172 tests)
+    └── test/java/                 # Unit tests (187 tests)
 ```
 
 ## Development
