@@ -38,6 +38,9 @@ public class LoadCommand implements Callable<Integer> {
     @Option(names = {"-p", "--phone-ratio"}, description = "Phone documents per identity", defaultValue = "2.5")
     private double phoneRatio;
 
+    @Option(names = {"--account-ratio"}, description = "Account documents per identity", defaultValue = "1.5")
+    private double accountRatio;
+
     @Option(names = {"-t", "--threads"}, description = "Number of writer threads", defaultValue = "4")
     private int threads;
 
@@ -107,6 +110,7 @@ public class LoadCommand implements Callable<Integer> {
 
         config.setAddressRatio(addressRatio);
         config.setPhoneRatio(phoneRatio);
+        config.setAccountRatio(accountRatio);
         config.setThreads(threads);
         config.setBatchSize(batchSize);
         config.setDropExisting(dropExisting);
@@ -133,9 +137,10 @@ public class LoadCommand implements Callable<Integer> {
         System.out.printf("  Identity:  %,d%n", config.getEffectiveIdentityCount());
         System.out.printf("  Address:   %,d (ratio: %.1f)%n", config.getAddressCount(), config.getAddressRatio());
         System.out.printf("  Phone:     %,d (ratio: %.1f)%n", config.getPhoneCount(), config.getPhoneRatio());
+        System.out.printf("  Account:   %,d (ratio: %.1f)%n", config.getAccountCount(), config.getAccountRatio());
         System.out.printf("  ─────────────────────%n");
         System.out.printf("  TOTAL:     %,d%n",
-            config.getEffectiveIdentityCount() + config.getAddressCount() + config.getPhoneCount());
+            config.getEffectiveIdentityCount() + config.getAddressCount() + config.getPhoneCount() + config.getAccountCount());
     }
 
     private int executeLoad(LoadConfig config) {
