@@ -137,8 +137,54 @@ public class HybridSearchCommand implements Callable<Integer> {
     @Option(names = {"--uc6-account-last4"}, description = "Account last 4 digits for UC-6 query")
     private String uc6AccountLast4;
 
+    // UC-3: Phone + Account Last 4
+    @Option(names = {"--uc3-phone"}, description = "Phone number for UC-3 query (Phone + Account Last 4)")
+    private String uc3Phone;
+
+    @Option(names = {"--uc3-account-last4"}, description = "Account last 4 digits for UC-3 query")
+    private String uc3AccountLast4;
+
+    // UC-5: City/State/ZIP + SSN Last 4 + Account Last 4
+    @Option(names = {"--uc5-city"}, description = "City for UC-5 query")
+    private String uc5City;
+
+    @Option(names = {"--uc5-state"}, description = "State for UC-5 query")
+    private String uc5State;
+
+    @Option(names = {"--uc5-zip"}, description = "ZIP code for UC-5 query")
+    private String uc5Zip;
+
+    @Option(names = {"--uc5-ssn-last4"}, description = "SSN last 4 digits for UC-5 query")
+    private String uc5SsnLast4;
+
+    @Option(names = {"--uc5-account-last4"}, description = "Account last 4 digits for UC-5 query")
+    private String uc5AccountLast4;
+
+    // UC-7: Email + Phone + Account Number
+    @Option(names = {"--uc7-email"}, description = "Email for UC-7 query")
+    private String uc7Email;
+
+    @Option(names = {"--uc7-phone"}, description = "Phone number for UC-7 query")
+    private String uc7Phone;
+
+    @Option(names = {"--uc7-account"}, description = "Account number for UC-7 query")
+    private String uc7Account;
+
+    // UC Search Index options
+    @Option(names = {"--create-uc-search-indexes"}, description = "Create full JSON search indexes for UC queries", defaultValue = "false")
+    private boolean createUcSearchIndexes;
+
+    @Option(names = {"--drop-uc-search-indexes"}, description = "Drop UC search indexes", defaultValue = "false")
+    private boolean dropUcSearchIndexes;
+
+    @Option(names = {"--uc-search-benchmark"}, description = "Run UC search benchmark with SCORE()", defaultValue = "false")
+    private boolean ucSearchBenchmark;
+
     @Option(names = {"--collection-prefix"}, description = "Collection/table name prefix for UC queries", defaultValue = "")
     private String collectionPrefix;
+
+    @Option(names = {"--create-uc-indexes"}, description = "Create functional indexes for UC SQL JOIN queries", defaultValue = "false")
+    private boolean createUcIndexes;
 
     @Option(names = {"--benchmark"}, description = "Run benchmark mode with detailed metrics", defaultValue = "false")
     private boolean benchmarkMode;
@@ -193,7 +239,23 @@ public class HybridSearchCommand implements Callable<Integer> {
                 return runUcBenchmark(sqlJoinService);
             }
 
-            // Individual UC queries
+            // UC Search Index management
+            if (createUcSearchIndexes) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return createUcSearchIndexesHandler(ucSearchService, dataSource);
+            }
+            if (dropUcSearchIndexes) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return dropUcSearchIndexesHandler(ucSearchService, dataSource);
+            }
+
+            // UC Search benchmark (using SCORE())
+            if (ucSearchBenchmark) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return runUcSearchBenchmark(ucSearchService);
+            }
+
+            // Individual UC queries (SqlJoinSearchService)
             if (uc1Phone != null && uc1SsnLast4 != null) {
                 SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
                 sqlJoinService.setCollectionPrefix(collectionPrefix);
@@ -204,15 +266,27 @@ public class HybridSearchCommand implements Callable<Integer> {
                 sqlJoinService.setCollectionPrefix(collectionPrefix);
                 return runUc2Query(sqlJoinService);
             }
+            if (uc3Phone != null && uc3AccountLast4 != null) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return runUc3Query(ucSearchService);
+            }
             if (uc4Account != null && uc4SsnLast4 != null) {
                 SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
                 sqlJoinService.setCollectionPrefix(collectionPrefix);
                 return runUc4Query(sqlJoinService);
             }
+            if (uc5City != null && uc5State != null && uc5Zip != null && uc5SsnLast4 != null && uc5AccountLast4 != null) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return runUc5Query(ucSearchService);
+            }
             if (uc6Email != null && uc6AccountLast4 != null) {
                 SqlJoinSearchService sqlJoinService = new SqlJoinSearchService(dataSource);
                 sqlJoinService.setCollectionPrefix(collectionPrefix);
                 return runUc6Query(sqlJoinService);
+            }
+            if (uc7Email != null && uc7Phone != null && uc7Account != null) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return runUc7Query(ucSearchService);
             }
 
             if (benchmarkMode) {
@@ -1468,6 +1542,524 @@ public class HybridSearchCommand implements Callable<Integer> {
         }
 
         return new BenchmarkResult("uc6_sql_join", "UC-6 SQL JOIN: Email + Account Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    // ---- UC Search (SCORE()) Query Methods ----
+
+    private int runUc3Query(UcSearchService service) {
+        if (!quiet) {
+            System.out.println("=== UC-3: Phone + Account Last 4 (SCORE()) ===");
+            System.out.println("Phone: " + uc3Phone);
+            System.out.println("Account Last 4: " + uc3AccountLast4);
+            System.out.println("Collection prefix: " + collectionPrefix);
+            System.out.println("Limit: " + limit);
+            System.out.println();
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<UcSearchResult> results = service.searchUC3(uc3Phone, uc3AccountLast4, limit);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        printUcSearchResults("UC-3 (Phone + Account Last 4)", results, elapsed);
+        return 0;
+    }
+
+    private int runUc5Query(UcSearchService service) {
+        if (!quiet) {
+            System.out.println("=== UC-5: City/State/ZIP + SSN Last 4 + Account Last 4 (SCORE()) ===");
+            System.out.println("City: " + uc5City);
+            System.out.println("State: " + uc5State);
+            System.out.println("ZIP: " + uc5Zip);
+            System.out.println("SSN Last 4: " + uc5SsnLast4);
+            System.out.println("Account Last 4: " + uc5AccountLast4);
+            System.out.println("Collection prefix: " + collectionPrefix);
+            System.out.println("Limit: " + limit);
+            System.out.println();
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<UcSearchResult> results = service.searchUC5(uc5City, uc5State, uc5Zip, uc5SsnLast4, uc5AccountLast4, limit);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        printUcSearchResults("UC-5 (City/State/ZIP + SSN + Account)", results, elapsed);
+        return 0;
+    }
+
+    private int runUc7Query(UcSearchService service) {
+        if (!quiet) {
+            System.out.println("=== UC-7: Email + Phone + Account Number (SCORE()) ===");
+            System.out.println("Email: " + uc7Email);
+            System.out.println("Phone: " + uc7Phone);
+            System.out.println("Account: " + uc7Account);
+            System.out.println("Collection prefix: " + collectionPrefix);
+            System.out.println("Limit: " + limit);
+            System.out.println();
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<UcSearchResult> results = service.searchUC7(uc7Email, uc7Phone, uc7Account, limit);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        printUcSearchResults("UC-7 (Email + Phone + Account)", results, elapsed);
+        return 0;
+    }
+
+    private void printUcSearchResults(String queryType, List<UcSearchResult> results, long elapsedMs) {
+        System.out.println("Results for " + queryType + ":");
+        System.out.println("  Found: " + results.size() + " results");
+        System.out.println("  Time: " + elapsedMs + "ms");
+        System.out.println();
+
+        if (results.isEmpty()) {
+            System.out.println("  (No results found)");
+        } else {
+            System.out.println("  Score | ECN               | Name                             | Type          | City              | CustomerType");
+            System.out.println("  ------|-------------------|----------------------------------|---------------|-------------------|---------------");
+            for (UcSearchResult result : results) {
+                String name = result.getName() != null ? result.getName() : "";
+                if (name.length() > 30) {
+                    name = name.substring(0, 27) + "...";
+                }
+                String city = result.getCityName() != null ? result.getCityName() : "";
+                if (city.length() > 15) {
+                    city = city.substring(0, 12) + "...";
+                }
+                String entityType = result.getEntityType() != null ? result.getEntityType() : "";
+                if (entityType.length() > 11) {
+                    entityType = entityType.substring(0, 8) + "...";
+                }
+                String customerType = result.getCustomerType() != null ? result.getCustomerType() : "";
+
+                System.out.printf("  %5d | %-17s | %-32s | %-13s | %-17s | %s%n",
+                    result.getRankingScore(),
+                    result.getEcn(),
+                    name,
+                    entityType,
+                    city,
+                    customerType);
+            }
+        }
+        System.out.println();
+    }
+
+    // ---- UC Search Index Management ----
+
+    private int createUcSearchIndexesHandler(UcSearchService service, DataSource dataSource) {
+        System.out.println("========================================");
+        System.out.println("  CREATE UC SEARCH INDEXES");
+        System.out.println("========================================");
+        System.out.println();
+        System.out.println("Collection prefix: " + collectionPrefix);
+        System.out.println();
+
+        List<String> statements = service.getCreateSearchIndexStatements();
+        System.out.println("Creating the following indexes:");
+        for (String stmt : statements) {
+            System.out.println("  - " + stmt);
+        }
+        System.out.println();
+
+        try (Connection conn = dataSource.getConnection()) {
+            long startTime = System.currentTimeMillis();
+            service.createSearchIndexes(conn);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.println("========================================");
+            System.out.println("  UC Search indexes created successfully!");
+            System.out.println("  Time: " + elapsed + "ms");
+            System.out.println("========================================");
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to create UC search indexes");
+            System.err.println("  Message: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    private int dropUcSearchIndexesHandler(UcSearchService service, DataSource dataSource) {
+        System.out.println("========================================");
+        System.out.println("  DROP UC SEARCH INDEXES");
+        System.out.println("========================================");
+        System.out.println();
+        System.out.println("Collection prefix: " + collectionPrefix);
+        System.out.println();
+
+        List<String> statements = service.getDropSearchIndexStatements();
+        System.out.println("Dropping the following indexes:");
+        for (String stmt : statements) {
+            System.out.println("  - " + stmt);
+        }
+        System.out.println();
+
+        try (Connection conn = dataSource.getConnection()) {
+            long startTime = System.currentTimeMillis();
+            service.dropSearchIndexes(conn);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.println("========================================");
+            System.out.println("  UC Search indexes dropped successfully!");
+            System.out.println("  Time: " + elapsed + "ms");
+            System.out.println("========================================");
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to drop UC search indexes");
+            System.err.println("  Message: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    // ---- UC Search Benchmark (SCORE()) ----
+
+    private int runUcSearchBenchmark(UcSearchService service) {
+        System.out.println("================================================================================");
+        System.out.println("                UC SEARCH BENCHMARK (SCORE())");
+        System.out.println("================================================================================");
+        System.out.println();
+        System.out.println("Configuration:");
+        System.out.println("  Collection prefix:  " + collectionPrefix);
+        System.out.println("  Iterations:         " + iterations);
+        System.out.println("  Warmup iterations:  " + warmupIterations);
+        System.out.println("  Result limit:       " + limit);
+        System.out.println();
+
+        List<BenchmarkResult> results = new ArrayList<>();
+
+        // Load sample data for UC queries from database
+        System.out.println("Loading sample data from database for UC queries...");
+        String[][] ucParams = sampleDataLoader.getUcQueryParametersArray(20);
+        System.out.println("  Loaded " + ucParams.length + " sample parameter sets");
+        System.out.println();
+
+        // UC-1: Phone + SSN Last 4 (SCORE())
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc1_score_search");
+        System.out.println("Description: UC-1 SCORE(): Phone + SSN Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc1Result = runUc1ScoreBenchmark(service, ucParams);
+        results.add(uc1Result);
+        printBenchmarkResult(uc1Result);
+
+        // UC-2: Phone + SSN + Account (SCORE())
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc2_score_search");
+        System.out.println("Description: UC-2 SCORE(): Phone + SSN + Account");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc2Result = runUc2ScoreBenchmark(service, ucParams);
+        results.add(uc2Result);
+        printBenchmarkResult(uc2Result);
+
+        // UC-3: Phone + Account Last 4 (SCORE())
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc3_score_search");
+        System.out.println("Description: UC-3 SCORE(): Phone + Account Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc3Result = runUc3ScoreBenchmark(service, ucParams);
+        results.add(uc3Result);
+        printBenchmarkResult(uc3Result);
+
+        // UC-4: Account + SSN (SCORE())
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc4_score_search");
+        System.out.println("Description: UC-4 SCORE(): Account + SSN");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc4Result = runUc4ScoreBenchmark(service, ucParams);
+        results.add(uc4Result);
+        printBenchmarkResult(uc4Result);
+
+        // UC-5: City/State/ZIP + SSN + Account (SCORE())
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc5_score_search");
+        System.out.println("Description: UC-5 SCORE(): City/State/ZIP + SSN + Account");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc5Result = runUc5ScoreBenchmark(service, ucParams);
+        results.add(uc5Result);
+        printBenchmarkResult(uc5Result);
+
+        // UC-6: Email + Account Last 4 (SCORE())
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc6_score_search");
+        System.out.println("Description: UC-6 SCORE(): Email + Account Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc6Result = runUc6ScoreBenchmark(service, ucParams);
+        results.add(uc6Result);
+        printBenchmarkResult(uc6Result);
+
+        // UC-7: Email + Phone + Account (SCORE())
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc7_score_search");
+        System.out.println("Description: UC-7 SCORE(): Email + Phone + Account");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc7Result = runUc7ScoreBenchmark(service, ucParams);
+        results.add(uc7Result);
+        printBenchmarkResult(uc7Result);
+
+        // Print summary
+        printBenchmarkSummary(results);
+
+        return 0;
+    }
+
+    private BenchmarkResult runUc1ScoreBenchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUC1(p[0], p[1], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUC1(p[0], p[1], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc1_score", "UC-1 SCORE(): Phone + SSN Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc2ScoreBenchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUC2(p[0], p[1], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUC2(p[0], p[1], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc2_score", "UC-2 SCORE(): Phone + SSN + Account",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc3ScoreBenchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUC3(p[0], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUC3(p[0], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc3_score", "UC-3 SCORE(): Phone + Account Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc4ScoreBenchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUC4(p[4], p[1], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUC4(p[4], p[1], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc4_score", "UC-4 SCORE(): Account + SSN",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc5ScoreBenchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Sample address parameters (would need to be loaded from SampleDataLoader in production)
+        String[] cities = {"New York", "Los Angeles", "Chicago", "Houston", "Phoenix"};
+        String[] states = {"NY", "CA", "IL", "TX", "AZ"};
+        String[] zips = {"10001", "90001", "60601", "77001", "85001"};
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            int addrIdx = paramIndex % cities.length;
+            paramIndex++;
+            try {
+                service.searchUC5(cities[addrIdx], states[addrIdx], zips[addrIdx], p[1], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            int addrIdx = paramIndex % cities.length;
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUC5(cities[addrIdx], states[addrIdx], zips[addrIdx], p[1], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc5_score", "UC-5 SCORE(): City/State/ZIP + SSN + Account",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc6ScoreBenchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUC6(p[3], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUC6(p[3], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc6_score", "UC-6 SCORE(): Email + Account Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUc7ScoreBenchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUC7(p[3], p[0], p[4], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUC7(p[3], p[0], p[4], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc7_score", "UC-7 SCORE(): Email + Phone + Account",
             histogram, iterations, warmupIterations, totalResults, errors);
     }
 

@@ -23,6 +23,9 @@ public class IdentityGenerator implements DataGenerator {
         "PRIMARY", "SECONDARY", "WORK"
     );
 
+    private static final String[] CUSTOMER_TYPES = {"Customer", "Prospect", "Youth Banking"};
+    private static final double[] CUSTOMER_TYPE_WEIGHTS = {0.60, 0.30, 0.10}; // 60% Customer, 30% Prospect, 10% Youth Banking
+
     private final RandomDataProvider random;
     private final double individualRatio;
     private final String collectionName;
@@ -102,6 +105,9 @@ public class IdentityGenerator implements DataGenerator {
         common.append("taxIdentificationNumber", taxIdNumber);
         // Add last 4 digits for partial search queries (UC-1, UC-2, UC-4, UC-5, WR-Q)
         common.append("taxIdentificationNumberLast4", taxIdNumber.substring(taxIdNumber.length() - 4));
+
+        // customerType field for UC search queries (Customer/Prospect/Youth Banking)
+        common.append("customerType", generateCustomerType());
 
         // identifications array (for individuals)
         if (isIndividual && random.randomBoolean(0.8)) {
@@ -338,5 +344,23 @@ public class IdentityGenerator implements DataGenerator {
         int days = random.randomInt(0, 365);
         return java.time.LocalDate.now().minusYears(years).minusDays(days)
             .format(java.time.format.DateTimeFormatter.ISO_DATE);
+    }
+
+    /**
+     * Generate customer type with weighted distribution:
+     * - 60% Customer
+     * - 30% Prospect
+     * - 10% Youth Banking
+     */
+    private String generateCustomerType() {
+        double rand = random.randomDouble();
+        double cumulative = 0.0;
+        for (int i = 0; i < CUSTOMER_TYPES.length; i++) {
+            cumulative += CUSTOMER_TYPE_WEIGHTS[i];
+            if (rand < cumulative) {
+                return CUSTOMER_TYPES[i];
+            }
+        }
+        return CUSTOMER_TYPES[0]; // Default to Customer
     }
 }
