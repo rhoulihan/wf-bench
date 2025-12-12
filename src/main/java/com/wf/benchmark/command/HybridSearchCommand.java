@@ -183,6 +183,23 @@ public class HybridSearchCommand implements Callable<Integer> {
     @Option(names = {"--collection-prefix"}, description = "Collection/table name prefix for UC queries", defaultValue = "")
     private String collectionPrefix;
 
+    // DBMS_SEARCH Unified Index options
+    @Option(names = {"--create-unified-index"}, description = "Create unified DBMS_SEARCH index across all collections", defaultValue = "false")
+    private boolean createUnifiedIndex;
+
+    @Option(names = {"--drop-unified-index"}, description = "Drop unified DBMS_SEARCH index", defaultValue = "false")
+    private boolean dropUnifiedIndex;
+
+    @Option(names = {"--unified-uc-benchmark"}, description = "Run UC 1-7 benchmark using unified DBMS_SEARCH index", defaultValue = "false")
+    private boolean unifiedUcBenchmark;
+
+    // DBMS_SEARCH Unified Index with Views options (UC-specific fields only)
+    @Option(names = {"--create-unified-index-with-views"}, description = "Create unified DBMS_SEARCH index using views with UC-specific fields only", defaultValue = "false")
+    private boolean createUnifiedIndexWithViews;
+
+    @Option(names = {"--drop-unified-index-with-views"}, description = "Drop unified DBMS_SEARCH index and UC views", defaultValue = "false")
+    private boolean dropUnifiedIndexWithViews;
+
     @Option(names = {"--create-uc-indexes"}, description = "Create functional indexes for UC SQL JOIN queries", defaultValue = "false")
     private boolean createUcIndexes;
 
@@ -249,10 +266,36 @@ public class HybridSearchCommand implements Callable<Integer> {
                 return dropUcSearchIndexesHandler(ucSearchService, dataSource);
             }
 
+            // DBMS_SEARCH Unified Index management
+            if (createUnifiedIndex) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return createUnifiedIndexHandler(ucSearchService, dataSource);
+            }
+            if (dropUnifiedIndex) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return dropUnifiedIndexHandler(ucSearchService, dataSource);
+            }
+
+            // DBMS_SEARCH Unified Index with Views management (UC-specific fields only)
+            if (createUnifiedIndexWithViews) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return createUnifiedIndexWithViewsHandler(ucSearchService, dataSource);
+            }
+            if (dropUnifiedIndexWithViews) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return dropUnifiedIndexWithViewsHandler(ucSearchService, dataSource);
+            }
+
             // UC Search benchmark (using SCORE())
             if (ucSearchBenchmark) {
                 UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
                 return runUcSearchBenchmark(ucSearchService);
+            }
+
+            // Unified DBMS_SEARCH UC benchmark
+            if (unifiedUcBenchmark) {
+                UcSearchService ucSearchService = new UcSearchService(dataSource, collectionPrefix);
+                return runUnifiedUcBenchmark(ucSearchService);
             }
 
             // Individual UC queries (SqlJoinSearchService)
@@ -1713,6 +1756,165 @@ public class HybridSearchCommand implements Callable<Integer> {
         }
     }
 
+    // ---- DBMS_SEARCH Unified Index Management ----
+
+    private int createUnifiedIndexHandler(UcSearchService service, DataSource dataSource) {
+        System.out.println("========================================");
+        System.out.println("  CREATE UNIFIED DBMS_SEARCH INDEX");
+        System.out.println("========================================");
+        System.out.println();
+        System.out.println("Collection prefix: " + collectionPrefix);
+        System.out.println("Index name: " + service.getUnifiedIndexName());
+        System.out.println();
+
+        System.out.println("Creating unified search index:");
+        System.out.println("  1. " + service.getCreateUnifiedIndexStatement());
+        System.out.println();
+        System.out.println("Adding sources:");
+        for (String stmt : service.getAddSourceStatements()) {
+            System.out.println("  - " + stmt);
+        }
+        System.out.println();
+
+        try (Connection conn = dataSource.getConnection()) {
+            long startTime = System.currentTimeMillis();
+            service.createUnifiedIndex(conn);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.println("========================================");
+            System.out.println("  Unified DBMS_SEARCH index created successfully!");
+            System.out.println("  Time: " + elapsed + "ms");
+            System.out.println("========================================");
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to create unified DBMS_SEARCH index");
+            System.err.println("  Message: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    private int dropUnifiedIndexHandler(UcSearchService service, DataSource dataSource) {
+        System.out.println("========================================");
+        System.out.println("  DROP UNIFIED DBMS_SEARCH INDEX");
+        System.out.println("========================================");
+        System.out.println();
+        System.out.println("Collection prefix: " + collectionPrefix);
+        System.out.println("Index name: " + service.getUnifiedIndexName());
+        System.out.println();
+
+        System.out.println("Dropping: " + service.getDropUnifiedIndexStatement());
+        System.out.println();
+
+        try (Connection conn = dataSource.getConnection()) {
+            long startTime = System.currentTimeMillis();
+            service.dropUnifiedIndex(conn);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.println("========================================");
+            System.out.println("  Unified DBMS_SEARCH index dropped successfully!");
+            System.out.println("  Time: " + elapsed + "ms");
+            System.out.println("========================================");
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to drop unified DBMS_SEARCH index");
+            System.err.println("  Message: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    // ---- DBMS_SEARCH Unified Index with Views Management ----
+
+    private int createUnifiedIndexWithViewsHandler(UcSearchService service, DataSource dataSource) {
+        System.out.println("========================================");
+        System.out.println("  CREATE UNIFIED DBMS_SEARCH INDEX WITH UC VIEWS");
+        System.out.println("========================================");
+        System.out.println();
+        System.out.println("This creates an optimized unified index using views that");
+        System.out.println("contain only the UC-required fields, reducing index size");
+        System.out.println("and improving search accuracy.");
+        System.out.println();
+        System.out.println("Collection prefix: " + collectionPrefix);
+        System.out.println("View prefix: " + service.getUcViewPrefix());
+        System.out.println("Index name: " + service.getUnifiedIndexName());
+        System.out.println();
+
+        System.out.println("Creating UC views:");
+        for (String sql : service.getCreateUcViewStatements()) {
+            System.out.println("  - " + sql.substring(0, Math.min(sql.length(), 80)) + "...");
+        }
+        System.out.println();
+
+        System.out.println("Creating unified search index:");
+        System.out.println("  " + service.getCreateUnifiedIndexStatement());
+        System.out.println();
+
+        System.out.println("Adding UC view sources:");
+        for (String stmt : service.getAddUcViewSourceStatements()) {
+            System.out.println("  - " + stmt);
+        }
+        System.out.println();
+
+        try (Connection conn = dataSource.getConnection()) {
+            long startTime = System.currentTimeMillis();
+            service.createUnifiedIndexWithViews(conn);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.println("========================================");
+            System.out.println("  Unified DBMS_SEARCH index with UC views created successfully!");
+            System.out.println("  Time: " + elapsed + "ms");
+            System.out.println("========================================");
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to create unified DBMS_SEARCH index with views");
+            System.err.println("  Message: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    private int dropUnifiedIndexWithViewsHandler(UcSearchService service, DataSource dataSource) {
+        System.out.println("========================================");
+        System.out.println("  DROP UNIFIED DBMS_SEARCH INDEX AND UC VIEWS");
+        System.out.println("========================================");
+        System.out.println();
+        System.out.println("Collection prefix: " + collectionPrefix);
+        System.out.println("View prefix: " + service.getUcViewPrefix());
+        System.out.println("Index name: " + service.getUnifiedIndexName());
+        System.out.println();
+
+        System.out.println("Dropping index: " + service.getDropUnifiedIndexStatement());
+        System.out.println();
+
+        System.out.println("Dropping UC views:");
+        for (String sql : service.getDropUcViewStatements()) {
+            System.out.println("  - " + sql);
+        }
+        System.out.println();
+
+        try (Connection conn = dataSource.getConnection()) {
+            long startTime = System.currentTimeMillis();
+            service.dropUnifiedIndexWithViews(conn);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.println("========================================");
+            System.out.println("  Unified DBMS_SEARCH index and UC views dropped successfully!");
+            System.out.println("  Time: " + elapsed + "ms");
+            System.out.println("========================================");
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to drop unified DBMS_SEARCH index and views");
+            System.err.println("  Message: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
     // ---- UC Search Benchmark (SCORE()) ----
 
     private int runUcSearchBenchmark(UcSearchService service) {
@@ -1954,18 +2156,15 @@ public class HybridSearchCommand implements Callable<Integer> {
         int errors = 0;
         int paramIndex = 0;
 
-        // Sample address parameters (would need to be loaded from SampleDataLoader in production)
-        String[] cities = {"New York", "Los Angeles", "Chicago", "Houston", "Phoenix"};
-        String[] states = {"NY", "CA", "IL", "TX", "AZ"};
-        String[] zips = {"10001", "90001", "60601", "77001", "85001"};
+        // Address parameters are loaded from database: params[5]=city, params[6]=state, params[7]=zip
 
         // Warmup
         for (int i = 0; i < warmupIterations; i++) {
             String[] p = params[paramIndex % params.length];
-            int addrIdx = paramIndex % cities.length;
             paramIndex++;
             try {
-                service.searchUC5(cities[addrIdx], states[addrIdx], zips[addrIdx], p[1], p[2], limit);
+                // p[5]=city, p[6]=state, p[7]=zip, p[1]=ssnLast4, p[2]=accountLast4
+                service.searchUC5(p[5], p[6], p[7], p[1], p[2], limit);
             } catch (Exception e) {
                 // Ignore warmup errors
             }
@@ -1974,11 +2173,11 @@ public class HybridSearchCommand implements Callable<Integer> {
         // Measured iterations
         for (int i = 0; i < iterations; i++) {
             String[] p = params[paramIndex % params.length];
-            int addrIdx = paramIndex % cities.length;
             paramIndex++;
             try {
                 long start = System.nanoTime();
-                List<UcSearchResult> results = service.searchUC5(cities[addrIdx], states[addrIdx], zips[addrIdx], p[1], p[2], limit);
+                // p[5]=city, p[6]=state, p[7]=zip, p[1]=ssnLast4, p[2]=accountLast4
+                List<UcSearchResult> results = service.searchUC5(p[5], p[6], p[7], p[1], p[2], limit);
                 long elapsed = System.nanoTime() - start;
                 histogram.recordValue(elapsed / 1000);
                 totalResults += results.size();
@@ -2060,6 +2259,355 @@ public class HybridSearchCommand implements Callable<Integer> {
         }
 
         return new BenchmarkResult("uc7_score", "UC-7 SCORE(): Email + Phone + Account",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    // ========================================================================
+    // UNIFIED DBMS_SEARCH BENCHMARK METHODS
+    // ========================================================================
+
+    private int runUnifiedUcBenchmark(UcSearchService service) {
+        System.out.println("================================================================================");
+        System.out.println("          UNIFIED DBMS_SEARCH UC BENCHMARK (DBMS_SEARCH.FIND)");
+        System.out.println("================================================================================");
+        System.out.println();
+        System.out.println("Configuration:");
+        System.out.println("  Collection prefix:  " + collectionPrefix);
+        System.out.println("  Iterations:         " + iterations);
+        System.out.println("  Warmup iterations:  " + warmupIterations);
+        System.out.println("  Result limit:       " + limit);
+        System.out.println();
+
+        List<BenchmarkResult> results = new ArrayList<>();
+
+        // Load sample data for UC queries from database
+        System.out.println("Loading sample data from database for UC queries...");
+        String[][] ucParams = sampleDataLoader.getUcQueryParametersArray(20);
+        System.out.println("  Loaded " + ucParams.length + " sample parameter sets");
+        System.out.println();
+
+        // UC-1: Phone + SSN Last 4 (Unified DBMS_SEARCH)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc1_unified_dbms_search");
+        System.out.println("Description: UC-1 Unified DBMS_SEARCH: Phone + SSN Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc1Result = runUnifiedUc1Benchmark(service, ucParams);
+        results.add(uc1Result);
+        printBenchmarkResult(uc1Result);
+
+        // UC-2: Phone + SSN + Account (Unified DBMS_SEARCH)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc2_unified_dbms_search");
+        System.out.println("Description: UC-2 Unified DBMS_SEARCH: Phone + SSN + Account");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc2Result = runUnifiedUc2Benchmark(service, ucParams);
+        results.add(uc2Result);
+        printBenchmarkResult(uc2Result);
+
+        // UC-3: Phone + Account Last 4 (Unified DBMS_SEARCH)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc3_unified_dbms_search");
+        System.out.println("Description: UC-3 Unified DBMS_SEARCH: Phone + Account Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc3Result = runUnifiedUc3Benchmark(service, ucParams);
+        results.add(uc3Result);
+        printBenchmarkResult(uc3Result);
+
+        // UC-4: Account + SSN (Unified DBMS_SEARCH)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc4_unified_dbms_search");
+        System.out.println("Description: UC-4 Unified DBMS_SEARCH: Account + SSN");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc4Result = runUnifiedUc4Benchmark(service, ucParams);
+        results.add(uc4Result);
+        printBenchmarkResult(uc4Result);
+
+        // UC-5: City/State/ZIP + SSN + Account (Unified DBMS_SEARCH)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc5_unified_dbms_search");
+        System.out.println("Description: UC-5 Unified DBMS_SEARCH: City/State/ZIP + SSN + Account");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc5Result = runUnifiedUc5Benchmark(service, ucParams);
+        results.add(uc5Result);
+        printBenchmarkResult(uc5Result);
+
+        // UC-6: Email + Account Last 4 (Unified DBMS_SEARCH)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc6_unified_dbms_search");
+        System.out.println("Description: UC-6 Unified DBMS_SEARCH: Email + Account Last 4");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc6Result = runUnifiedUc6Benchmark(service, ucParams);
+        results.add(uc6Result);
+        printBenchmarkResult(uc6Result);
+
+        // UC-7: Email + Phone + Account (Unified DBMS_SEARCH)
+        System.out.println("--------------------------------------------------------------------------------");
+        System.out.println("Benchmark: uc7_unified_dbms_search");
+        System.out.println("Description: UC-7 Unified DBMS_SEARCH: Email + Phone + Account");
+        System.out.println("--------------------------------------------------------------------------------");
+        BenchmarkResult uc7Result = runUnifiedUc7Benchmark(service, ucParams);
+        results.add(uc7Result);
+        printBenchmarkResult(uc7Result);
+
+        // Print summary
+        printBenchmarkSummary(results);
+
+        return 0;
+    }
+
+    private BenchmarkResult runUnifiedUc1Benchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUnifiedUC1(p[0], p[1], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUnifiedUC1(p[0], p[1], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+                if (errors == 1) {
+                    System.out.println("First error in UC1 unified: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        return new BenchmarkResult("uc1_unified", "UC-1 Unified DBMS_SEARCH: Phone + SSN Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUnifiedUc2Benchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUnifiedUC2(p[0], p[1], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUnifiedUC2(p[0], p[1], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc2_unified", "UC-2 Unified DBMS_SEARCH: Phone + SSN + Account",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUnifiedUc3Benchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUnifiedUC3(p[0], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUnifiedUC3(p[0], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc3_unified", "UC-3 Unified DBMS_SEARCH: Phone + Account Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUnifiedUc4Benchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUnifiedUC4(p[4], p[1], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUnifiedUC4(p[4], p[1], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc4_unified", "UC-4 Unified DBMS_SEARCH: Account + SSN",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUnifiedUc5Benchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUnifiedUC5(p[5], p[6], p[7], p[1], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUnifiedUC5(p[5], p[6], p[7], p[1], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc5_unified", "UC-5 Unified DBMS_SEARCH: City/State/ZIP + SSN + Account",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUnifiedUc6Benchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUnifiedUC6(p[3], p[2], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUnifiedUC6(p[3], p[2], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc6_unified", "UC-6 Unified DBMS_SEARCH: Email + Account Last 4",
+            histogram, iterations, warmupIterations, totalResults, errors);
+    }
+
+    private BenchmarkResult runUnifiedUc7Benchmark(UcSearchService service, String[][] params) {
+        Histogram histogram = new Histogram(1, 60_000_000, 3);
+        long totalResults = 0;
+        int errors = 0;
+        int paramIndex = 0;
+
+        // Warmup
+        for (int i = 0; i < warmupIterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                service.searchUnifiedUC7(p[3], p[0], p[4], limit);
+            } catch (Exception e) {
+                // Ignore warmup errors
+            }
+        }
+
+        // Measured iterations
+        for (int i = 0; i < iterations; i++) {
+            String[] p = params[paramIndex % params.length];
+            paramIndex++;
+            try {
+                long start = System.nanoTime();
+                List<UcSearchResult> results = service.searchUnifiedUC7(p[3], p[0], p[4], limit);
+                long elapsed = System.nanoTime() - start;
+                histogram.recordValue(elapsed / 1000);
+                totalResults += results.size();
+            } catch (Exception e) {
+                errors++;
+            }
+        }
+
+        return new BenchmarkResult("uc7_unified", "UC-7 Unified DBMS_SEARCH: Email + Phone + Account",
             histogram, iterations, warmupIterations, totalResults, errors);
     }
 

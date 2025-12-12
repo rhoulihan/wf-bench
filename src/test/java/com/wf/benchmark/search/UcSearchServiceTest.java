@@ -332,6 +332,177 @@ class UcSearchServiceTest {
     }
 
     @Nested
+    class UnifiedDbmsSearchIndexTests {
+
+        @Test
+        void shouldGenerateUnifiedIndexName() {
+            // When
+            String indexName = ucSearchService.getUnifiedIndexName();
+
+            // Then
+            assertThat(indexName).isEqualTo("idx_bench_uc_unified");
+        }
+
+        @Test
+        void shouldGenerateUnifiedIndexNameWithoutPrefix() {
+            // Given
+            UcSearchService service = new UcSearchService(stubDataSource);
+
+            // When
+            String indexName = service.getUnifiedIndexName();
+
+            // Then
+            assertThat(indexName).isEqualTo("idx_uc_unified");
+        }
+
+        @Test
+        void shouldGenerateCreateUnifiedIndexStatement() {
+            // When
+            String statement = ucSearchService.getCreateUnifiedIndexStatement();
+
+            // Then
+            assertThat(statement).contains("DBMS_SEARCH.CREATE_INDEX");
+            assertThat(statement).contains("idx_bench_uc_unified");
+        }
+
+        @Test
+        void shouldGenerateAddSourceStatements() {
+            // When
+            List<String> statements = ucSearchService.getAddSourceStatements();
+
+            // Then
+            assertThat(statements).hasSize(4);
+            assertThat(statements).anyMatch(s -> s.contains("DBMS_SEARCH.ADD_SOURCE") && s.contains("bench_identity"));
+            assertThat(statements).anyMatch(s -> s.contains("DBMS_SEARCH.ADD_SOURCE") && s.contains("bench_phone"));
+            assertThat(statements).anyMatch(s -> s.contains("DBMS_SEARCH.ADD_SOURCE") && s.contains("bench_account"));
+            assertThat(statements).anyMatch(s -> s.contains("DBMS_SEARCH.ADD_SOURCE") && s.contains("bench_address"));
+        }
+
+        @Test
+        void shouldGenerateDropUnifiedIndexStatement() {
+            // When
+            String statement = ucSearchService.getDropUnifiedIndexStatement();
+
+            // Then
+            assertThat(statement).contains("DBMS_SEARCH.DROP_INDEX");
+            assertThat(statement).contains("idx_bench_uc_unified");
+        }
+
+        @Test
+        void shouldGenerateFindQueryForUnifiedIndex() {
+            // When
+            String query = ucSearchService.buildUnifiedFindQuery("phone:5551234567", 10);
+
+            // Then
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("idx_bench_uc_unified");
+        }
+
+        // ==================== Unified UC 1-7 Query Tests ====================
+
+        @Test
+        void shouldBuildFuzzyOrQueryWithTwoTerms() {
+            // When - UC-1 style: Phone + SSN Last 4
+            String query = ucSearchService.buildFuzzyOrQuery(List.of("5551234567", "6789"), 10);
+
+            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("idx_bench_uc_unified");
+            assertThat(query).contains("fuzzy(5551234567)");
+            assertThat(query).contains("fuzzy(6789)");
+            assertThat(query).contains("OR");
+        }
+
+        @Test
+        void shouldBuildFuzzyOrQueryWithThreeTerms() {
+            // When - UC-2 style: Phone + SSN Last 4 + Account Last 4
+            String query = ucSearchService.buildFuzzyOrQuery(List.of("5551234567", "6789", "1234"), 10);
+
+            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("idx_bench_uc_unified");
+            assertThat(query).contains("fuzzy(5551234567)");
+            assertThat(query).contains("fuzzy(6789)");
+            assertThat(query).contains("fuzzy(1234)");
+        }
+
+        @Test
+        void shouldBuildFuzzyOrQueryWithPhoneAndAccountLast4() {
+            // When - UC-3 style: Phone + Account Last 4
+            String query = ucSearchService.buildFuzzyOrQuery(List.of("5551234567", "1234"), 10);
+
+            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("fuzzy(5551234567)");
+            assertThat(query).contains("fuzzy(1234)");
+        }
+
+        @Test
+        void shouldBuildFuzzyOrQueryWithAccountAndSsn() {
+            // When - UC-4 style: Account Number + SSN Last 4
+            String query = ucSearchService.buildFuzzyOrQuery(List.of("1234567890", "6789"), 10);
+
+            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("fuzzy(1234567890)");
+            assertThat(query).contains("fuzzy(6789)");
+        }
+
+        @Test
+        void shouldBuildFuzzyOrQueryWithAddressAndAccountTerms() {
+            // When - UC-5 style: City/State/ZIP + SSN Last 4 + Account Last 4
+            String query = ucSearchService.buildFuzzyOrQuery(List.of("New York", "NY", "10001", "6789", "1234"), 10);
+
+            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("fuzzy(New York)");
+            assertThat(query).contains("fuzzy(NY)");
+            assertThat(query).contains("fuzzy(10001)");
+        }
+
+        @Test
+        void shouldBuildFuzzyOrQueryWithEmailAndAccountLast4() {
+            // When - UC-6 style: Email + Account Last 4
+            String query = ucSearchService.buildFuzzyOrQuery(List.of("john@example.com", "1234"), 10);
+
+            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("fuzzy(john@example.com)");
+            assertThat(query).contains("fuzzy(1234)");
+        }
+
+        @Test
+        void shouldBuildFuzzyOrQueryWithEmailPhoneAccount() {
+            // When - UC-7 style: Email + Phone + Account Number
+            String query = ucSearchService.buildFuzzyOrQuery(List.of("john@example.com", "5551234567", "1234567890"), 10);
+
+            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
+            assertThat(query).contains("DBMS_SEARCH.FIND");
+            assertThat(query).contains("fuzzy(john@example.com)");
+            assertThat(query).contains("fuzzy(5551234567)");
+            assertThat(query).contains("fuzzy(1234567890)");
+        }
+
+        @Test
+        void shouldFilterNullAndBlankTermsFromFuzzyOrQuery() {
+            // When - some terms are blank (using Arrays.asList to allow nulls)
+            String query = ucSearchService.buildFuzzyOrQuery(java.util.Arrays.asList("5551234567", null, "", "  ", "6789"), 10);
+
+            // Then - only valid terms are included
+            assertThat(query).contains("fuzzy(5551234567)");
+            assertThat(query).contains("fuzzy(6789)");
+            assertThat(query).doesNotContain("fuzzy()");
+            assertThat(query).doesNotContain("fuzzy(null)");
+        }
+
+        // NOTE: searchUnifiedUC1-7 execution tests require real Oracle DBMS_SEARCH.FIND
+        // JSON responses which can't be easily mocked with a stub datasource.
+        // The algorithm logic (grouping, filtering, scoring) is thoroughly tested in:
+        // - UnifiedSearchAlgorithmTest.java (40+ tests covering SearchHit, SearchCategory, CustomerHitGroup)
+        // Integration tests should be used to verify end-to-end DBMS_SEARCH functionality.
+    }
+
+    @Nested
     class ConfigurationTests {
 
         @Test
@@ -637,7 +808,12 @@ class UcSearchServiceTest {
         @Override public java.sql.SQLWarning getWarnings() { return null; }
         @Override public void clearWarnings() {}
         @Override public void setCursorName(String name) {}
-        @Override public ResultSet executeQuery(String sql) { return null; }
+        @Override
+        public ResultSet executeQuery(String sql) {
+            dataSource.lastPreparedSql = sql;
+            dataSource.wasExecuted = true;
+            return new StubResultSet(dataSource);
+        }
         @Override public int executeUpdate(String sql) { return 0; }
         @Override public ResultSet getResultSet() { return null; }
         @Override public int getUpdateCount() { return 0; }

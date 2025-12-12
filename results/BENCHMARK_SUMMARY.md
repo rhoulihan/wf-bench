@@ -256,6 +256,43 @@ CREATE SEARCH INDEX idx_account_search ON account(DATA) FOR JSON;
 CREATE SEARCH INDEX idx_address_search ON address(DATA) FOR JSON;
 ```
 
+### DBMS_SEARCH Unified Index (Cross-Table Search)
+
+Oracle DBMS_SEARCH (Ubiquitous Database Search) enables creating a single unified search index across multiple collections, enabling cross-table search queries with a single index.
+
+```sql
+-- Create unified index
+BEGIN DBMS_SEARCH.CREATE_INDEX('idx_uc_unified'); END;
+
+-- Add all collections to the unified index
+BEGIN DBMS_SEARCH.ADD_SOURCE('idx_uc_unified', 'identity'); END;
+BEGIN DBMS_SEARCH.ADD_SOURCE('idx_uc_unified', 'phone'); END;
+BEGIN DBMS_SEARCH.ADD_SOURCE('idx_uc_unified', 'account'); END;
+BEGIN DBMS_SEARCH.ADD_SOURCE('idx_uc_unified', 'address'); END;
+
+-- Query across all collections
+SELECT * FROM DBMS_SEARCH.FIND('idx_uc_unified', 'search_term')
+FETCH FIRST 10 ROWS ONLY;
+
+-- Drop unified index
+BEGIN DBMS_SEARCH.DROP_INDEX('idx_uc_unified'); END;
+```
+
+**CLI Commands:**
+```bash
+# Create unified DBMS_SEARCH index
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  --jdbc-url "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --create-unified-index \
+  --collection-prefix bench_
+
+# Drop unified DBMS_SEARCH index
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  --jdbc-url "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --drop-unified-index \
+  --collection-prefix bench_
+```
+
 ---
 
 ## Implementation Details

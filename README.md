@@ -12,6 +12,7 @@ A Java CLI tool for benchmarking the MongoDB API for Oracle Database. Load test 
   - **Fuzzy Search** - Oracle Text for typo-tolerant matching
   - **Vector Search** - Semantic similarity using Oracle AI Vector Search
   - **UC SQL JOIN Queries** - Multi-collection joins via native SQL with json_value()
+  - **UC Unified Search** - DBMS_SEARCH.FIND with fuzzy OR queries across unified index
 - **Multiple Output Formats** - Console, CSV, and JSON output for integration with analysis tools
 - **Tunable Parameters** - Thread count, batch size, connection pool size, and more
 - **Parameterized Queries** - Support for multiple parameter generation strategies:
@@ -373,6 +374,40 @@ java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
 
 Supported UC queries: UC-1, UC-2, UC-4, UC-6 (see `results/BENCHMARK_SUMMARY.md` for SQL definitions).
 
+### UC Unified Search (DBMS_SEARCH.FIND)
+
+The `hybrid-search` command also supports UC 1-7 queries using Oracle DBMS_SEARCH (Ubiquitous Database Search) with a unified index across all collections. This approach uses:
+
+1. **Fuzzy OR Query** - Search all terms with fuzzy matching: `fuzzy(term1) OR fuzzy(term2) OR ...`
+2. **Group by Customer** - Aggregate search hits by customerNumber
+3. **Category Filtering** - Only include customers matching ALL required categories for the UC case
+4. **Score Ranking** - Sort by average relevance score
+
+```bash
+# Create unified DBMS_SEARCH index
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --collection-prefix "bench_" \
+  --create-uc-search-indexes
+
+# Run UC Unified Search benchmark
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
+  --collection-prefix "bench_" \
+  --uc-search-benchmark -i 10 -w 3
+```
+
+**Algorithm:**
+```
+1. Execute: DBMS_SEARCH.FIND('idx_uc_unified', 'fuzzy(phone) OR fuzzy(ssn_last4)')
+2. Parse JSON response into SearchHit records (source_table, customerNumber, score)
+3. Group hits by customerNumber → CustomerHitGroup
+4. Map matched fields to SearchCategory (PHONE, SSN_LAST4, ACCOUNT_LAST4, etc.)
+5. Filter groups having ALL required categories for UC case
+6. Sort by average score, limit results
+7. Fetch customer details from identity/address collections
+```
+
 ### Running Integration Tests
 
 ```bash
@@ -496,9 +531,14 @@ wf_bench/
     │   │   ├── VectorSearchService.java   # Oracle AI Vector Search
     │   │   ├── HybridSearchService.java   # Combined search strategies
     │   │   ├── SqlJoinSearchService.java  # UC SQL JOIN queries
+    │   │   ├── UcSearchService.java       # UC Unified Search (DBMS_SEARCH)
+    │   │   ├── UcSearchResult.java        # UC search result model
+    │   │   ├── SearchCategory.java        # UC category definitions
+    │   │   ├── SearchHit.java             # DBMS_SEARCH hit record
+    │   │   ├── CustomerHitGroup.java      # Customer hit aggregation
     │   │   └── SampleDataLoader.java      # UC parameter loading
     │   └── report/                # Output formatting
-    └── test/java/                 # Unit tests (187 tests)
+    └── test/java/                 # Unit tests (278 tests)
 ```
 
 ## Development

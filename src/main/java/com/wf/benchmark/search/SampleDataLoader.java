@@ -28,9 +28,9 @@ public class SampleDataLoader {
         "*ACME CORPORATION"
     );
 
-    // Fallback UC parameters: [phone, ssnLast4, accountLast4, email, accountNumber]
+    // Fallback UC parameters: [phone, ssnLast4, accountLast4, email, accountNumber, city, state, zip]
     private static final String[][] FALLBACK_UC_PARAMS_ARRAY = {
-        {"5551234567", "6789", "7890", "john@example.com", "1234567890"}
+        {"5551234567", "6789", "7890", "john@example.com", "1234567890", "New York", "NY", "10001"}
     };
     private static final List<String[]> FALLBACK_UC_PARAMS = java.util.Arrays.asList(FALLBACK_UC_PARAMS_ARRAY);
 
@@ -165,11 +165,11 @@ public class SampleDataLoader {
     }
 
     /**
-     * Load sample UC query parameters from the database by joining identity, phone, and account collections.
+     * Load sample UC query parameters from the database by joining identity, phone, account, and address collections.
      * Results are cached for subsequent calls.
      *
      * @param count Maximum number of parameter sets to load
-     * @return List of [phone, ssnLast4, accountLast4, email, accountNumber] arrays
+     * @return List of [phone, ssnLast4, accountLast4, email, accountNumber, city, state, zip] arrays
      */
     public List<String[]> loadUcQueryParameters(int count) {
         if (cachedUcParams != null) {
@@ -178,13 +178,15 @@ public class SampleDataLoader {
 
         cachedUcParams = new ArrayList<>();
 
-        // Query to join identity, phone, and account collections to get correlated UC parameters
+        // Query to join identity, phone, account, and address collections to get correlated UC parameters
         // Uses the collection prefix pattern: if collection is "bench_identity", derive others
         String identityTable = collection;
         String phoneTable = collection.endsWith("identity") ?
             collection.substring(0, collection.length() - 8) + "phone" : "phone";
         String accountTable = collection.endsWith("identity") ?
             collection.substring(0, collection.length() - 8) + "account" : "account";
+        String addressTable = collection.endsWith("identity") ?
+            collection.substring(0, collection.length() - 8) + "address" : "address";
 
         String sql = """
             SELECT
@@ -192,19 +194,27 @@ public class SampleDataLoader {
                 json_value(i.DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4,
                 json_value(a.DATA, '$.accountKey.accountNumberLast4') as account_last4,
                 json_value(i.DATA, '$.emails[0].emailAddress') as email,
-                json_value(a.DATA, '$.accountKey.accountNumber') as account_number
+                json_value(a.DATA, '$.accountKey.accountNumber') as account_number,
+                json_value(addr.DATA, '$.cityName') as city,
+                json_value(addr.DATA, '$.stateCode') as state,
+                json_value(addr.DATA, '$.postalCode') as zip
             FROM %s i
             JOIN %s p ON json_value(i.DATA, '$._id.customerNumber') =
                          json_value(p.DATA, '$.phoneKey.customerNumber')
             JOIN %s a ON json_value(i.DATA, '$._id.customerNumber') =
                          json_value(a.DATA, '$.accountHolders[0].customerNumber')
+            JOIN %s addr ON json_value(i.DATA, '$._id.customerNumber') =
+                            json_value(addr.DATA, '$._id.customerNumber')
             WHERE json_value(p.DATA, '$.phoneKey.phoneNumber') IS NOT NULL
               AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') IS NOT NULL
               AND json_value(a.DATA, '$.accountKey.accountNumberLast4') IS NOT NULL
               AND json_value(i.DATA, '$.emails[0].emailAddress') IS NOT NULL
               AND json_value(a.DATA, '$.accountKey.accountNumber') IS NOT NULL
+              AND json_value(addr.DATA, '$.cityName') IS NOT NULL
+              AND json_value(addr.DATA, '$.stateCode') IS NOT NULL
+              AND json_value(addr.DATA, '$.postalCode') IS NOT NULL
             FETCH FIRST ? ROWS ONLY
-            """.formatted(identityTable, phoneTable, accountTable);
+            """.formatted(identityTable, phoneTable, accountTable, addressTable);
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -216,10 +226,14 @@ public class SampleDataLoader {
                     String accountLast4 = rs.getString("account_last4");
                     String email = rs.getString("email");
                     String accountNumber = rs.getString("account_number");
+                    String city = rs.getString("city");
+                    String state = rs.getString("state");
+                    String zip = rs.getString("zip");
 
                     if (phone != null && ssnLast4 != null && accountLast4 != null &&
-                        email != null && accountNumber != null) {
-                        cachedUcParams.add(new String[]{phone, ssnLast4, accountLast4, email, accountNumber});
+                        email != null && accountNumber != null &&
+                        city != null && state != null && zip != null) {
+                        cachedUcParams.add(new String[]{phone, ssnLast4, accountLast4, email, accountNumber, city, state, zip});
                     }
                 }
             }
@@ -236,7 +250,7 @@ public class SampleDataLoader {
      * Get sample UC query parameters as a 2D array for benchmark tests.
      *
      * @param count Maximum number of parameter sets to load
-     * @return 2D array of [phone, ssnLast4, accountLast4, email, accountNumber] arrays
+     * @return 2D array of [phone, ssnLast4, accountLast4, email, accountNumber, city, state, zip] arrays
      */
     public String[][] getUcQueryParametersArray(int count) {
         List<String[]> params = loadUcQueryParameters(count);
