@@ -81,6 +81,24 @@ public class CustomerHitGroup {
     }
 
     /**
+     * Calculates the average score including 0 for missing categories.
+     * This ensures that customers with partial matches get lower scores
+     * than customers with full matches.
+     *
+     * <p>For example, if a UC case requires 3 categories (phone, SSN, account)
+     * and a customer only matches 2 with scores [80, 90], the average would be:
+     * (80 + 90 + 0) / 3 = 56.67 instead of (80 + 90) / 2 = 85
+     *
+     * @param expectedCategories the number of categories expected for the UC case
+     * @return the average score with 0s for missing categories
+     */
+    public double getAverageScoreWithMissing(int expectedCategories) {
+        if (hits.isEmpty() || expectedCategories <= 0) return 0.0;
+        double totalScore = hits.stream().mapToDouble(SearchHit::score).sum();
+        return totalScore / expectedCategories;
+    }
+
+    /**
      * Returns the total score (sum of all hit scores).
      *
      * @return the total score
@@ -177,7 +195,10 @@ public class CustomerHitGroup {
      * @param requiredCategories the categories required for inclusion
      * @param limit            maximum number of results
      * @return sorted list of groups that have all required categories
+     * @deprecated Use {@link #sortByScore(Map, Set, int)} instead which includes
+     *             partial matches with 0 scores for missing categories
      */
+    @Deprecated
     public static List<CustomerHitGroup> filterAndSort(
             Map<String, CustomerHitGroup> groups,
             Set<SearchCategory> requiredCategories,
@@ -186,6 +207,40 @@ public class CustomerHitGroup {
         return groups.values().stream()
                 .filter(g -> g.hasAllCategories(requiredCategories))
                 .sorted(Comparator.comparingDouble(CustomerHitGroup::getAverageScore).reversed())
+                .limit(limit)
+                .toList();
+    }
+
+    /**
+     * Sorts customer groups by average score, including 0 for missing categories.
+     * This does NOT filter out partial matches - all customers with at least one
+     * hit are included, ranked by their average score (with 0s for missing categories).
+     *
+     * <p>This approach allows partial matches to appear in results but ranked lower
+     * than full matches. For example:
+     * <ul>
+     *   <li>Customer A matches phone(80) + SSN(90) = avg 56.67 (for 3-category UC)</li>
+     *   <li>Customer B matches phone(70) + SSN(80) + account(90) = avg 80.00</li>
+     * </ul>
+     * Customer B ranks higher because they have all categories.
+     *
+     * @param groups             the groups to sort
+     * @param requiredCategories the categories required (used for score averaging)
+     * @param limit              maximum number of results
+     * @return sorted list of all groups with at least one hit
+     */
+    public static List<CustomerHitGroup> sortByScore(
+            Map<String, CustomerHitGroup> groups,
+            Set<SearchCategory> requiredCategories,
+            int limit) {
+
+        int expectedCategories = requiredCategories.size();
+
+        return groups.values().stream()
+                .filter(g -> !g.getHits().isEmpty())  // Only include groups with at least one hit
+                .sorted(Comparator.comparingDouble(
+                        (CustomerHitGroup g) -> g.getAverageScoreWithMissing(expectedCategories))
+                        .reversed())
                 .limit(limit)
                 .toList();
     }

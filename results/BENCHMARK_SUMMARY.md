@@ -1,6 +1,6 @@
 # WF Benchmark Results
 
-**Last Updated:** 2025-12-11
+**Last Updated:** 2025-12-12
 
 ## Table of Contents
 
@@ -26,13 +26,13 @@
 | Hybrid Search Types | 4 (fuzzy, phonetic, hybrid, business) |
 | MongoDB B-Tree Indexes | 21 |
 | Oracle Text Search Indexes | 4 |
-| Unit Tests | 214 (all passing) |
+| Unit Tests | 278 (all passing) |
 
 ### Performance Highlights
 
 | Query Type | Avg Latency | Throughput |
 |------------|-------------|------------|
-| UC SQL JOINs (DBMS_SEARCH) | 5-7ms | 150-200/s |
+| UC SQL JOINs (DBMS_SEARCH) | 4-15ms | 65-230/s |
 | Fuzzy Text Search | 4.5ms | 224/s |
 | Phonetic (SOUNDEX) | 7.4ms | 134/s |
 | Single-Field Lookups | 2-3ms | 400-450/s |
@@ -80,14 +80,19 @@ These use cases implement the Wells Fargo RFP requirements for cross-collection 
 
 Uses Oracle Text full JSON search indexes with SCORE() relevance ranking.
 
-**Data Scale:** SMALL (60K docs) | **Config:** 5 iterations, 1 warmup
+**Data Scale:** LARGE (5.5M docs) | **Config:** 5 iterations, 1 warmup
 
-| Query | Avg (ms) | P50 (ms) | P95 (ms) | Throughput | Docs |
-|-------|----------|----------|----------|------------|------|
-| UC-1 | 5.30 | 5.14 | 6.24 | 188.5/s | 1.0 |
-| UC-2 | 6.76 | 6.68 | 7.18 | 147.9/s | 1.0 |
-| UC-4 | 4.96 | 4.78 | 5.70 | 201.6/s | 1.0 |
-| UC-6 | 5.20 | 5.09 | 5.59 | 192.1/s | 1.0 |
+| Query | Description | Avg (ms) | P50 (ms) | P95 (ms) | Throughput |
+|-------|-------------|----------|----------|----------|------------|
+| UC-1 | Phone + SSN Last 4 | 4.87 | 4.64 | 5.90 | 205.5/s |
+| UC-2 | Phone + SSN + Account | 4.94 | 4.81 | 5.54 | 202.5/s |
+| UC-3 | Phone + Account Last 4 | 15.21 | 13.32 | 21.34 | 65.8/s |
+| UC-4 | Account + SSN | 4.32 | 4.30 | 4.92 | 231.3/s |
+| UC-5 | City/State/ZIP + SSN + Account | 6.30 | 5.98 | 7.82 | 158.7/s |
+| UC-6 | Email + Account Last 4 | 5.18 | 5.05 | 5.52 | 193.0/s |
+| UC-7 | Email + Phone + Account | 13.96 | 13.72 | 14.62 | 71.7/s |
+
+*Note: Query latency measures DBMS_SEARCH.FIND execution time. UC-3 and UC-7 have higher latency due to multi-term fuzzy OR queries across collections.*
 
 **Indexes Required:**
 ```sql

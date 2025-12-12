@@ -572,5 +572,102 @@ class UnifiedSearchAlgorithmTest {
             assertThat(results.get(0).getCustomerNumber()).isEqualTo("1000000001");
             assertThat(results.get(0).getAverageScore()).isCloseTo(95.0, org.assertj.core.data.Offset.offset(0.1));
         }
+
+        /**
+         * Tests sortByScore includes partial matches with 0 for missing categories.
+         * This is the new scoring behavior that doesn't filter out partial matches.
+         */
+        @Test
+        void shouldIncludePartialMatchesWithZeroScoring() {
+            // Given - UC-2: Phone + SSN + Account (3 categories)
+            List<SearchHit> simulatedHits = List.of(
+                // Customer 1 has all 3 categories - avg = (100+90+80)/3 = 90
+                new SearchHit("phone", "1000000001", "phoneNumber", "5551234567", 100.0),
+                new SearchHit("identity", "1000000001", "ssnLast4", "1234", 90.0),
+                new SearchHit("account", "1000000001", "accountLast4", "5678", 80.0),
+                // Customer 2 only has 2 categories - avgWithZero = (95+85+0)/3 = 60
+                new SearchHit("phone", "1000000002", "phoneNumber", "5559876543", 95.0),
+                new SearchHit("identity", "1000000002", "ssnLast4", "4321", 85.0)
+                // Missing account category
+            );
+
+            Map<String, SearchCategory> fieldMap = Map.of(
+                "phoneNumber", SearchCategory.PHONE,
+                "ssnLast4", SearchCategory.SSN_LAST4,
+                "accountLast4", SearchCategory.ACCOUNT_LAST4
+            );
+
+            // When
+            Map<String, CustomerHitGroup> groups = CustomerHitGroup.groupByCustomer(simulatedHits, fieldMap);
+            List<CustomerHitGroup> results = CustomerHitGroup.sortByScore(
+                groups, SearchCategory.UC2_CATEGORIES, 10
+            );
+
+            // Then - both customers should be included, Customer 1 ranked higher
+            assertThat(results).hasSize(2);
+            assertThat(results.get(0).getCustomerNumber()).isEqualTo("1000000001");
+            assertThat(results.get(0).getAverageScoreWithMissing(3)).isCloseTo(90.0, org.assertj.core.data.Offset.offset(0.1));
+            assertThat(results.get(1).getCustomerNumber()).isEqualTo("1000000002");
+            assertThat(results.get(1).getAverageScoreWithMissing(3)).isCloseTo(60.0, org.assertj.core.data.Offset.offset(0.1));
+        }
+
+        /**
+         * Tests getAverageScoreWithMissing calculates correctly.
+         */
+        @Test
+        void shouldCalculateAverageScoreWithMissingCategories() {
+            // Given - customer with only 2 hits when 3 expected
+            CustomerHitGroup group = new CustomerHitGroup("1000000001");
+            group.addHit(new SearchHit("phone", "1000000001", "phoneNumber", "5551234567", 90.0), SearchCategory.PHONE);
+            group.addHit(new SearchHit("identity", "1000000001", "ssnLast4", "1234", 60.0), SearchCategory.SSN_LAST4);
+
+            // When - calculate with 3 expected categories (treat missing as 0)
+            double avgWith3Expected = group.getAverageScoreWithMissing(3);
+            double avgWith2Expected = group.getAverageScoreWithMissing(2);
+
+            // Then
+            // (90 + 60) / 3 = 50.0
+            assertThat(avgWith3Expected).isEqualTo(50.0);
+            // (90 + 60) / 2 = 75.0
+            assertThat(avgWith2Expected).isEqualTo(75.0);
+        }
+
+        /**
+         * Tests that sortByScore ranks full matches higher than partial matches.
+         */
+        @Test
+        void shouldRankFullMatchesHigherThanPartialMatches() {
+            // Given - Customer 1: partial match (high scores but missing 1 category)
+            //         Customer 2: full match (lower scores but all categories)
+            List<SearchHit> simulatedHits = List.of(
+                // Customer 1: 2 categories, very high scores
+                new SearchHit("phone", "1000000001", "phoneNumber", "5551234567", 100.0),
+                new SearchHit("identity", "1000000001", "ssnLast4", "1234", 100.0),
+                // Customer 2: all 3 categories, moderate scores
+                new SearchHit("phone", "1000000002", "phoneNumber", "5559876543", 60.0),
+                new SearchHit("identity", "1000000002", "ssnLast4", "4321", 60.0),
+                new SearchHit("account", "1000000002", "accountLast4", "9999", 60.0)
+            );
+
+            Map<String, SearchCategory> fieldMap = Map.of(
+                "phoneNumber", SearchCategory.PHONE,
+                "ssnLast4", SearchCategory.SSN_LAST4,
+                "accountLast4", SearchCategory.ACCOUNT_LAST4
+            );
+
+            // When
+            Map<String, CustomerHitGroup> groups = CustomerHitGroup.groupByCustomer(simulatedHits, fieldMap);
+            List<CustomerHitGroup> results = CustomerHitGroup.sortByScore(
+                groups, SearchCategory.UC2_CATEGORIES, 10
+            );
+
+            // Then - Customer 1: (100+100+0)/3 = 66.67, Customer 2: (60+60+60)/3 = 60
+            // Customer 1 ranks higher despite missing category because score is higher
+            assertThat(results).hasSize(2);
+            assertThat(results.get(0).getCustomerNumber()).isEqualTo("1000000001");
+            assertThat(results.get(0).getAverageScoreWithMissing(3)).isCloseTo(66.67, org.assertj.core.data.Offset.offset(0.1));
+            assertThat(results.get(1).getCustomerNumber()).isEqualTo("1000000002");
+            assertThat(results.get(1).getAverageScoreWithMissing(3)).isCloseTo(60.0, org.assertj.core.data.Offset.offset(0.1));
+        }
     }
 }

@@ -47,9 +47,11 @@ public class DataLoader {
         this.config = config;
         this.progressReporter = progressReporter;
 
-        // Create sample collector - will write to sample-data.json in current directory
+        // Create sample collector with known customer count for deterministic sampling
+        // This ensures we sample the same customers across all collections
         Path sampleDataPath = Path.of("sample-data.json");
-        this.sampleCollector = new SampleDataCollector(SAMPLE_RATE, sampleDataPath);
+        long totalCustomers = config.getEffectiveIdentityCount();
+        this.sampleCollector = new SampleDataCollector(SAMPLE_RATE, sampleDataPath, totalCustomers);
     }
 
     public List<LoadMetrics> load() throws InterruptedException {

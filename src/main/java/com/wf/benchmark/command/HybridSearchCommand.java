@@ -219,7 +219,11 @@ public class HybridSearchCommand implements Callable<Integer> {
     public Integer call() {
         try {
             DataSource dataSource = createDataSource();
-            this.sampleDataLoader = new SampleDataLoader(dataSource, collection);
+            // Use prefixed collection name if collection prefix is specified
+            String fullCollectionName = (collectionPrefix != null && !collectionPrefix.isEmpty())
+                ? collectionPrefix + collection
+                : collection;
+            this.sampleDataLoader = new SampleDataLoader(dataSource, fullCollectionName);
 
             // Handle index creation if requested
             if (setupAllIndexes) {

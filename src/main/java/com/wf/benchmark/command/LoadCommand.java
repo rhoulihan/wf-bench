@@ -1,10 +1,12 @@
 package com.wf.benchmark.command;
 
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoDatabase;
 import com.wf.benchmark.config.ConnectionConfig;
 import com.wf.benchmark.config.LoadConfig;
 import com.wf.benchmark.loader.DataLoader;
 import com.wf.benchmark.loader.LoadMetrics;
+import com.wf.benchmark.loader.IndexCreator;
 import com.wf.benchmark.report.ConsoleReporter;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -67,6 +69,9 @@ public class LoadCommand implements Callable<Integer> {
 
     @Option(names = {"--progress-interval"}, description = "Progress update interval (docs)", defaultValue = "5000")
     private int progressInterval;
+
+    @Option(names = {"--create-indexes"}, description = "Create required indexes after loading", defaultValue = "false")
+    private boolean createIndexes;
 
     @Override
     public Integer call() {
@@ -183,6 +188,19 @@ public class LoadCommand implements Callable<Integer> {
             List<LoadMetrics> metrics = loader.load();
 
             reporter.printLoadResults(metrics);
+
+            // Create indexes if requested
+            if (createIndexes) {
+                if (!quiet) {
+                    System.out.println("\nCreating indexes...");
+                }
+                MongoDatabase db = client.getDatabase(connConfig.getDatabase());
+                IndexCreator indexCreator = new IndexCreator(db, config.getCollectionPrefix());
+                indexCreator.createAllIndexes(quiet);
+                if (!quiet) {
+                    System.out.println("Index creation complete.");
+                }
+            }
 
             return 0;
         } catch (Exception e) {

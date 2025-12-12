@@ -681,11 +681,13 @@ public class UcSearchService {
             Map<String, CustomerHitGroup> groups = CustomerHitGroup.groupByCustomer(hits, FIELD_TO_CATEGORY);
             log.debug("Grouped into {} customer groups", groups.size());
 
-            // Step 3: Filter by required categories and sort by score
-            List<CustomerHitGroup> qualifyingGroups = CustomerHitGroup.filterAndSort(
+            // Step 3: Sort by average score (with 0 for missing categories)
+            // This includes ALL customers with at least one hit, ranked by score
+            // Full matches rank higher than partial matches
+            List<CustomerHitGroup> qualifyingGroups = CustomerHitGroup.sortByScore(
                 groups, requiredCategories, limit
             );
-            log.debug("{} customers have all required categories", qualifyingGroups.size());
+            log.debug("{} customers returned (ranked by score with 0 for missing categories)", qualifyingGroups.size());
 
             if (qualifyingGroups.isEmpty()) {
                 return List.of();
