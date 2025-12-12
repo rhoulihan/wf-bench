@@ -236,8 +236,11 @@ public class SampleDataCollector {
      * Write collected sample data to the output file.
      */
     public void writeToFile() throws IOException {
-        // Ensure parent directory exists
-        Files.createDirectories(outputPath.getParent());
+        // Ensure parent directory exists (if there is one)
+        Path parent = outputPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
 
         try (PrintWriter writer = new PrintWriter(new FileWriter(outputPath.toFile()))) {
             writer.println("{");
