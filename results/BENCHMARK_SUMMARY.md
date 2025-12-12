@@ -406,6 +406,36 @@ java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
 
 **Note:** The SQL JOIN approach leverages Oracle's query optimizer for join planning and executes in a single database round-trip. The MongoDB API implementation uses sequential find() operations which may have lower latency for simple joins due to connection pooling and query caching, but SQL JOINs scale better for complex multi-table queries when properly indexed.
 
+### UC SQL JOIN with DBMS_SEARCH (Oracle Text)
+
+The UC queries have also been tested using Oracle DBMS_SEARCH (full JSON search indexes) with SCORE() for relevance ranking. This approach creates full JSON search indexes on all collections and uses SQL JOINs with Oracle Text scoring.
+
+#### DBMS_SEARCH Benchmark Results (SMALL Scale - 60K docs)
+
+| Query | Description | Avg (ms) | P50 (ms) | P95 (ms) | Throughput | Docs |
+|-------|-------------|----------|----------|----------|------------|------|
+| UC-1 | Phone + SSN Last 4 (2-way JOIN) | 5.30 | 5.14 | 6.24 | 188.5/s | 1.0 |
+| UC-2 | Phone + SSN + Account (3-way JOIN) | 6.76 | 6.68 | 7.18 | 147.9/s | 1.0 |
+| UC-4 | Account + SSN (2-way JOIN) | 4.96 | 4.78 | 5.70 | 201.6/s | 1.0 |
+| UC-6 | Email + Account Last 4 (2-way JOIN) | 5.20 | 5.09 | 5.59 | 192.1/s | 1.0 |
+
+**Key Findings:**
+- All UC queries execute in sub-7ms with proper JSON search indexes
+- UC-4 (Account + SSN) is fastest at 4.96ms avg (~202 ops/sec)
+- UC-2 (3-way JOIN) adds ~1.5ms overhead vs 2-way JOINs
+- All queries return expected results with SCORE() relevance ranking
+
+#### UC Search Indexes Created
+
+```sql
+CREATE SEARCH INDEX idx_identity_search ON identity(DATA) FOR JSON;
+CREATE SEARCH INDEX idx_phone_search ON phone(DATA) FOR JSON;
+CREATE SEARCH INDEX idx_account_search ON account(DATA) FOR JSON;
+CREATE SEARCH INDEX idx_address_search ON address(DATA) FOR JSON;
+```
+
+Index creation time: ~20 seconds for all 4 indexes on SMALL scale data.
+
 ---
 
 ## Index Summary

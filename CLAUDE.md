@@ -93,19 +93,6 @@ Options:
 ./wf-bench.sh clean -c "CONNECTION_STRING" -d DATABASE
 ```
 
-## Benchmark Results (SMALL scale - 45,000 docs)
-
-From remote server (129.213.29.234) to Oracle ADB:
-
-| Collection | Documents | Throughput | Avg Latency | P95 Latency |
-|------------|-----------|------------|-------------|-------------|
-| identity   | 10,000    | 7,576/s    | 304.38 ms   | 588.80 ms   |
-| address    | 10,000    | 11,274/s   | 213.87 ms   | 316.93 ms   |
-| phone      | 25,000    | 20,358/s   | 139.85 ms   | 317.44 ms   |
-| **TOTAL**  | **45,000**| **34,091/s**|            |             |
-
-Total time: 1.3 seconds, Zero errors
-
 ## Security Notes
 
 - Connection strings with passwords should NEVER be committed to git
@@ -206,19 +193,9 @@ CREATE SEARCH INDEX idx_identity_data_text ON identity(DATA) FOR JSON;
 - **Phonetic Search:** Uses `SOUNDEX()` function for names that sound alike
 - **Vector Search:** Requires embedding column and vector index (not yet configured)
 
-## Hybrid Search Benchmark Results
+## Benchmark Results
 
-Date: 2025-12-11 | Server: Phoenix (129.213.29.234) | Database: Oracle ADB
-
-| Search Type | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Throughput | Avg Docs |
-|-------------|----------|----------|----------|----------|------------|----------|
-| phonetic_name_search | 7.44 | 7.34 | 7.71 | 7.71 | 134.4/s | 1.2 |
-| fuzzy_name_search | 4.47 | 3.91 | 9.11 | 9.11 | 223.9/s | 1.2 |
-| hybrid_name_search | 12.28 | 12.16 | 13.45 | 13.45 | 81.5/s | 1.4 |
-| fuzzy_business_search | 6.04 | 5.64 | 9.28 | 9.28 | 165.5/s | 0.4 |
-
-**Key Findings:**
-- Fuzzy name search is fastest (4.47ms avg, ~224 ops/sec)
-- Phonetic search uses SOUNDEX for sound-alike matching (~7.4ms avg)
-- Hybrid search combines both strategies (~12ms avg, returns 1.4 docs on average)
-- Business name search returns 0.4 docs avg (some business names only contain reserved words)
+See [results/BENCHMARK_SUMMARY.md](results/BENCHMARK_SUMMARY.md) for detailed benchmark results including:
+- Data load benchmarks
+- Hybrid search benchmarks (fuzzy, phonetic, combined)
+- UC 1-7 search benchmarks (SQL JOINs with Oracle Text)
