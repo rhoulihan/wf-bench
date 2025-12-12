@@ -9,12 +9,15 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Consumer;
 
 /**
  * Orchestrates parallel data loading across multiple collections.
@@ -23,9 +26,13 @@ public class DataLoader {
 
     private static final Logger log = LoggerFactory.getLogger(DataLoader.class);
 
+    // Sample rate: 0.1% of documents will be sampled
+    private static final double SAMPLE_RATE = 0.001;
+
     private final MongoClient client;
     private final LoadConfig config;
     private final ProgressReporter progressReporter;
+    private final SampleDataCollector sampleCollector;
 
     private final LongAdder totalDocumentsWritten = new LongAdder();
     private final List<LoadMetrics> allMetrics = new ArrayList<>();
@@ -39,6 +46,10 @@ public class DataLoader {
         this.client = client;
         this.config = config;
         this.progressReporter = progressReporter;
+
+        // Create sample collector - will write to sample-data.json in current directory
+        Path sampleDataPath = Path.of("sample-data.json");
+        this.sampleCollector = new SampleDataCollector(SAMPLE_RATE, sampleDataPath);
     }
 
     public List<LoadMetrics> load() throws InterruptedException {
@@ -78,17 +89,30 @@ public class DataLoader {
         log.info("Starting data load - Identity: {}, Address: {}, Phone: {}, Account: {}",
             identityCount, addressCount, phoneCount, accountCount);
 
-        LoadMetrics identityMetrics = loadCollection(database, identityGen, identityCount);
+        // Load each collection with appropriate sample collectors
+        LoadMetrics identityMetrics = loadCollection(database, identityGen, identityCount,
+            sampleCollector::collectIdentitySample);
         allMetrics.add(identityMetrics);
 
-        LoadMetrics addressMetrics = loadCollection(database, addressGen, addressCount);
+        LoadMetrics addressMetrics = loadCollection(database, addressGen, addressCount,
+            sampleCollector::collectAddressSample);
         allMetrics.add(addressMetrics);
 
-        LoadMetrics phoneMetrics = loadCollection(database, phoneGen, phoneCount);
+        LoadMetrics phoneMetrics = loadCollection(database, phoneGen, phoneCount,
+            sampleCollector::collectPhoneSample);
         allMetrics.add(phoneMetrics);
 
-        LoadMetrics accountMetrics = loadCollection(database, accountGen, accountCount);
+        LoadMetrics accountMetrics = loadCollection(database, accountGen, accountCount,
+            sampleCollector::collectAccountSample);
         allMetrics.add(accountMetrics);
+
+        // Write sample data to file
+        try {
+            sampleCollector.writeToFile();
+            log.info("Sample data collection complete: {}", sampleCollector.getStats());
+        } catch (IOException e) {
+            log.warn("Failed to write sample data file: {}", e.getMessage());
+        }
 
         return allMetrics;
     }
@@ -108,7 +132,8 @@ public class DataLoader {
         }
     }
 
-    private LoadMetrics loadCollection(MongoDatabase database, DataGenerator generator, long documentCount)
+    private LoadMetrics loadCollection(MongoDatabase database, DataGenerator generator, long documentCount,
+                                        Consumer<Document> sampleCollectorFn)
             throws InterruptedException {
 
         String collectionName = generator.getCollectionName();
@@ -150,7 +175,7 @@ public class DataLoader {
             BatchWriter writer = new BatchWriter(
                 collection, generator, startSeq, endSeq,
                 config.getBatchSize(), config.isOrdered(),
-                metrics, progressCallback);
+                metrics, progressCallback, sampleCollectorFn);
 
             writers.add(writer);
             startSeq = endSeq;

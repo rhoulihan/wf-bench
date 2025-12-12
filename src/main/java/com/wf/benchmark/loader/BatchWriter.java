@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Handles batch writing of documents to MongoDB.
@@ -26,6 +27,7 @@ public class BatchWriter implements Runnable {
     private final boolean ordered;
     private final LoadMetrics metrics;
     private final ProgressCallback progressCallback;
+    private final Consumer<Document> sampleCollector;
 
     public interface ProgressCallback {
         void onProgress(String collection, long documentsWritten);
@@ -39,6 +41,18 @@ public class BatchWriter implements Runnable {
                        boolean ordered,
                        LoadMetrics metrics,
                        ProgressCallback progressCallback) {
+        this(collection, generator, startSequence, endSequence, batchSize, ordered, metrics, progressCallback, null);
+    }
+
+    public BatchWriter(MongoCollection<Document> collection,
+                       DataGenerator generator,
+                       long startSequence,
+                       long endSequence,
+                       int batchSize,
+                       boolean ordered,
+                       LoadMetrics metrics,
+                       ProgressCallback progressCallback,
+                       Consumer<Document> sampleCollector) {
         this.collection = collection;
         this.generator = generator;
         this.startSequence = startSequence;
@@ -47,6 +61,7 @@ public class BatchWriter implements Runnable {
         this.ordered = ordered;
         this.metrics = metrics;
         this.progressCallback = progressCallback;
+        this.sampleCollector = sampleCollector;
     }
 
     @Override
@@ -57,6 +72,11 @@ public class BatchWriter implements Runnable {
         for (long seq = startSequence; seq < endSequence; seq++) {
             Document doc = generator.generate(seq);
             batch.add(doc);
+
+            // Collect sample data if collector is configured
+            if (sampleCollector != null) {
+                sampleCollector.accept(doc);
+            }
 
             if (batch.size() >= batchSize) {
                 writeBatch(batch, options);
