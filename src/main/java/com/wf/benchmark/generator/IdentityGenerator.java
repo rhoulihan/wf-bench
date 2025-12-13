@@ -103,8 +103,6 @@ public class IdentityGenerator implements DataGenerator {
         common.append("entityTypeIndicator", isIndividual ? "INDIVIDUAL" : "NON_INDIVIDUAL");
         common.append("taxIdentificationTypeCode", taxIdType);
         common.append("taxIdentificationNumber", taxIdNumber);
-        // Add last 4 digits for partial search queries (UC-1, UC-2, UC-4, UC-5, WR-Q)
-        common.append("taxIdentificationNumberLast4", taxIdNumber.substring(taxIdNumber.length() - 4));
 
         // customerType field for UC search queries (Customer/Prospect/Youth Banking)
         common.append("customerType", generateCustomerType());

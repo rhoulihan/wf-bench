@@ -1,8 +1,14 @@
 # MongoDB $sql Operator Migration Plan
 
+## Status: COMPLETE
+
+**Completed:** December 13, 2025
+
+All UC 1-7 queries have been successfully migrated to use the MongoDB API's `$sql` aggregation operator with `json_textcontains()` for fuzzy matching on ALL search conditions.
+
 ## Overview
 
-This document outlines the plan to migrate the UC 1-7 search implementations from direct JDBC/SQL to using the MongoDB API's `$sql` aggregation operator. This approach allows running SQL queries through the MongoDB wire protocol while leveraging Oracle's full SQL capabilities.
+This document outlines the completed migration of UC 1-7 search implementations from direct JDBC/SQL to using the MongoDB API's `$sql` aggregation operator. This approach allows running SQL queries through the MongoDB wire protocol while leveraging Oracle's full SQL capabilities.
 
 ## Background: Oracle Team Discussion Summary
 
@@ -111,50 +117,50 @@ ORDER BY SCORE(1) DESC
 FETCH FIRST ? ROWS ONLY
 ```
 
-**New Pattern (MongoDB $sql):**
+**Implemented Pattern (MongoDB $sql) - Fuzzy on ALL conditions:**
 ```sql
 WITH
 phones AS (
-  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore, RESID
+  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore
   FROM "phone"
-  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', ':phoneNumber', 1)
+  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', 'term', 1)
   ORDER BY score(1) DESC
 ),
 identities AS (
-  SELECT "DATA", RESID
+  SELECT "DATA", score(2) iscore
   FROM "identity"
-  WHERE "DATA"."common"."taxIdentificationNumberLast4" = ':ssnLast4'
+  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%term', 2)
 ),
 addresses AS (
-  SELECT "DATA", RESID
+  SELECT "DATA"
   FROM "address"
 ),
 joined AS (
   SELECT
-    p.data phone_data,
-    i.data identity_data,
-    a.data address_data,
-    p.pscore ranking_score
+    p."DATA" phone_data,
+    i."DATA" identity_data,
+    a."DATA" address_data,
+    (p.pscore + i.iscore) / 2 ranking_score
   FROM phones p
-  JOIN identities i ON i.data."_id"."customerNumber" = p.data."phoneKey"."customerNumber"
-  LEFT JOIN addresses a ON a.data."_id"."customerNumber" = i.data."_id"."customerNumber"
+  JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
+  JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
 )
 SELECT json {
   'rankingScore' : j.ranking_score,
-  'ecn' : j.identity_data."_id"."customerNumber",
-  'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-  'entityType' : j.identity_data."common"."entityTypeIndicator",
-  'name' : j.identity_data."common"."fullName",
-  'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-  'addressLine' : j.address_data."addresses"[0]."addressLine1",
-  'cityName' : j.address_data."addresses"[0]."cityName",
-  'state' : j.address_data."addresses"[0]."stateCode",
-  'postalCode' : j.address_data."addresses"[0]."postalCode",
-  'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US')
+  'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+  ...
 }
 FROM joined j
+ORDER BY j.ranking_score DESC
 FETCH FIRST :limit ROWS ONLY
 ```
+
+**Key Implementation Details:**
+- Fuzzy matching via `json_textcontains()` on BOTH phone and SSN
+- SSN uses ends-with pattern (`%term`) to match last 4 digits of full taxIdentificationNumber
+- Combined score: `(p.pscore + i.iscore) / 2`
+- INNER JOIN for addresses (customers must have at least one address)
+- Each score label must be unique (1, 2, 3...) to avoid ORA-30605
 
 #### UC-2: Phone + SSN Last 4 + Account Last 4
 
@@ -341,6 +347,36 @@ The existing `UcSearchService.java` (JDBC-based) will be retained. The new Mongo
 | Phase 2 | Implement UC-1 through UC-7 query builders |
 | Phase 3 | Add CLI options and benchmark infrastructure |
 | Phase 4 | Testing and performance comparison |
+
+---
+
+## Final Implementation Results
+
+### Benchmark Results (December 13, 2025)
+
+| UC | Description | Avg Latency | P95 | Status |
+|----|-------------|-------------|-----|--------|
+| UC-1 | Phone + SSN | 34.14 ms | 39.87 ms | 20/20 |
+| UC-2 | Phone + SSN + Account | 46.98 ms | 62.11 ms | 20/20 |
+| UC-3 | Phone + Account Last 4 | 18.47 ms | 18.88 ms | 20/20 |
+| UC-4 | Account + SSN | 32.42 ms | 37.95 ms | 20/20 |
+| UC-5 | City/State/ZIP + SSN + Account | 29.35 ms | 35.33 ms | 20/20 |
+| UC-6 | Email + Account Last 4 | 6.23 ms | 6.58 ms | 20/20 |
+| UC-7 | Email + Phone + Account | 6.42 ms | 6.80 ms | 20/20 |
+
+### Key Implementation Decisions
+
+1. **Fuzzy on ALL Conditions:** Every search parameter uses `json_textcontains()` for fuzzy matching
+2. **Combined Scores:** Multiple fuzzy scores are averaged for ranking
+3. **Ends-With Pattern:** `%term` pattern for partial matches (SSN, account last 4)
+4. **Full TIN Field:** Searches use `taxIdentificationNumber` (not a separate last4 field)
+5. **INNER JOIN for Addresses:** All customers must have at least one address
+
+### Resolved Issues
+
+1. **Array Index Paths (ORA-40469):** Use `$.addresses.cityName` without array index
+2. **Negative Numbers (DRG-50901):** Use `Math.abs()` for account number generation
+3. **Score Label Conflicts (ORA-30605):** Each `json_textcontains()` uses unique label (1, 2, 3...)
 
 ---
 

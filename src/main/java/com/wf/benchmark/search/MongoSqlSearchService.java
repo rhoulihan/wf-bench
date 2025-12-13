@@ -165,6 +165,8 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-1: Phone + SSN Last 4.
+     * Fuzzy matching on both phone and SSN last 4, combined score.
+     * SSN last 4 uses ends-with pattern (%term) to anchor at end of string.
      */
     public String buildUC1Query(String phoneNumber, String ssnLast4, int limit) {
         String phone = collectionPrefix + "phone";
@@ -180,9 +182,9 @@ public class MongoSqlSearchService {
               ORDER BY score(1) DESC
             ),
             identities AS (
-              SELECT "DATA"
+              SELECT "DATA", score(2) iscore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%%%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -193,10 +195,10 @@ public class MongoSqlSearchService {
                 p."DATA" phone_data,
                 i."DATA" identity_data,
                 a."DATA" address_data,
-                p.pscore ranking_score
+                (p.pscore + i.iscore) / 2 ranking_score
               FROM phones p
               JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
@@ -227,6 +229,8 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-2: Phone + SSN Last 4 + Account Last 4.
+     * Fuzzy matching on all three conditions, combined score.
+     * SSN last 4 and account last 4 use ends-with pattern (%term) to anchor at end of string.
      */
     public String buildUC2Query(String phoneNumber, String ssnLast4, String accountLast4, int limit) {
         String phone = collectionPrefix + "phone";
@@ -243,14 +247,14 @@ public class MongoSqlSearchService {
               ORDER BY score(1) DESC
             ),
             identities AS (
-              SELECT "DATA"
+              SELECT "DATA", score(2) iscore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%%%s', 2)
             ),
             accounts AS (
-              SELECT "DATA"
+              SELECT "DATA", score(3) ascore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 3)
             ),
             addresses AS (
               SELECT "DATA"
@@ -262,11 +266,11 @@ public class MongoSqlSearchService {
                 i."DATA" identity_data,
                 ac."DATA" account_data,
                 a."DATA" address_data,
-                p.pscore ranking_score
+                (p.pscore + i.iscore + ac.ascore) / 3 ranking_score
               FROM phones p
               JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
               JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
@@ -298,6 +302,8 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-3: Phone + Account Last 4.
+     * Fuzzy matching on both phone and account last 4, combined score.
+     * Account last 4 uses ends-with pattern (%term) to anchor at end of string.
      */
     public String buildUC3Query(String phoneNumber, String accountLast4, int limit) {
         String phone = collectionPrefix + "phone";
@@ -318,9 +324,9 @@ public class MongoSqlSearchService {
               FROM "%s"
             ),
             accounts AS (
-              SELECT "DATA"
+              SELECT "DATA", score(2) ascore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -332,11 +338,11 @@ public class MongoSqlSearchService {
                 i."DATA" identity_data,
                 ac."DATA" account_data,
                 a."DATA" address_data,
-                p.pscore ranking_score
+                (p.pscore + ac.ascore) / 2 ranking_score
               FROM phones p
               JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
               JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
@@ -367,6 +373,8 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-4: Account Number + SSN Last 4.
+     * Fuzzy matching on both account number and SSN last 4, combined score.
+     * SSN last 4 uses ends-with pattern (%term) to anchor at end of string.
      */
     public String buildUC4Query(String accountNumber, String ssnLast4, int limit) {
         String account = collectionPrefix + "account";
@@ -382,9 +390,9 @@ public class MongoSqlSearchService {
               ORDER BY score(1) DESC
             ),
             identities AS (
-              SELECT "DATA"
+              SELECT "DATA", score(2) iscore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%%%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -395,10 +403,10 @@ public class MongoSqlSearchService {
                 ac."DATA" account_data,
                 i."DATA" identity_data,
                 a."DATA" address_data,
-                ac.ascore ranking_score
+                (ac.ascore + i.iscore) / 2 ranking_score
               FROM accounts ac
               JOIN identities i ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
@@ -429,7 +437,9 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-5: City/State/ZIP + SSN Last 4 + Account Last 4.
+     * Fuzzy matching on city, SSN last 4, and account last 4, combined score.
      * Uses $.addresses.cityName (without array index) - matches any element in the array.
+     * SSN last 4 and account last 4 use ends-with pattern (%term) to anchor at end of string.
      * Note: Array index syntax like $.addresses[0].cityName fails with ORA-40469.
      */
     public String buildUC5Query(String city, String state, String zip, String ssnLast4, String accountLast4, int limit) {
@@ -448,21 +458,21 @@ public class MongoSqlSearchService {
               ORDER BY score(1) DESC
             ),
             identities AS (
-              SELECT "DATA"
+              SELECT "DATA", score(2) iscore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%%%s', 2)
             ),
             accounts AS (
-              SELECT "DATA"
+              SELECT "DATA", score(3) ascore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 3)
             ),
             joined AS (
               SELECT
                 a."DATA" address_data,
                 i."DATA" identity_data,
                 ac."DATA" account_data,
-                a.addr_score ranking_score
+                (a.addr_score + i.iscore + ac.ascore) / 3 ranking_score
               FROM addresses a
               JOIN identities i ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
               JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
@@ -497,6 +507,8 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-6: Email + Account Last 4.
+     * Fuzzy matching on both email and account last 4, combined score.
+     * Account last 4 uses ends-with pattern (%term) to anchor at end of string.
      */
     public String buildUC6Query(String email, String accountLast4, int limit) {
         String identity = collectionPrefix + "identity";
@@ -512,9 +524,9 @@ public class MongoSqlSearchService {
               ORDER BY score(1) DESC
             ),
             accounts AS (
-              SELECT "DATA"
+              SELECT "DATA", score(2) ascore
               FROM "%s"
-              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -525,10 +537,10 @@ public class MongoSqlSearchService {
                 i."DATA" identity_data,
                 ac."DATA" account_data,
                 a."DATA" address_data,
-                i.iscore ranking_score
+                (i.iscore + ac.ascore) / 2 ranking_score
               FROM identities i
               JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
@@ -601,7 +613,7 @@ public class MongoSqlSearchService {
               FROM identities i
               JOIN phones p ON JSON_VALUE(p."DATA", '$.phoneKey.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
               JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.combined_score,

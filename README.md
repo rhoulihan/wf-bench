@@ -179,17 +179,17 @@ queries:
         min: 1000000001
         max: 1000100000
 
-  # Example using random_pattern for SSN last 4
-  - name: "find_by_ssn_last4"
-    description: "Search by SSN last 4 digits"
+  # Example using random_pattern for SSN search (ends-with matching)
+  - name: "find_by_ssn"
+    description: "Search by SSN (ends-with pattern)"
     collection: "bench_identity"
     type: "find"
     filter:
-      common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+      common.taxIdentificationNumber: "${param:ssn}"
     parameters:
-      ssnLast4:
+      ssn:
         type: "random_pattern"
-        pattern: "\\d{4}"  # Generates 4 random digits
+        pattern: "\\d{9}"  # Generates 9 random digits (full SSN format)
 
   # Example using random_from_loaded (samples from actual data)
   - name: "find_by_zip"
@@ -272,15 +272,15 @@ queries:
       foreignField: "_id.customerNumber"
       as: "identityDocs"
       matchFilter:
-        identityDocs.common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+        identityDocs.common.taxIdentificationNumber: "${param:ssn}"
     parameters:
       phoneNumber:
         type: "random_from_loaded"
         collection: "phone"
         field: "phoneKey.phoneNumber"
-      ssnLast4:
+      ssn:
         type: "random_pattern"
-        pattern: "\\d{4}"
+        pattern: "\\d{9}"
 
   # UC-2: Phone + SSN + Account via chained $lookup
   - name: "uc2_phone_ssn_account_lookup"
@@ -295,7 +295,7 @@ queries:
       foreignField: "_id.customerNumber"
       as: "identityDocs"
       matchFilter:
-        identityDocs.common.taxIdentificationNumberLast4: "${param:ssnLast4}"
+        identityDocs.common.taxIdentificationNumber: "${param:ssn}"
       lookup:  # Chained lookup
         from: "account"
         localField: "identityDocs._id.customerNumber"
@@ -330,7 +330,7 @@ The tool automatically generates the aggregation pipeline:
       as: "identityDocs"
   }},
   { $unwind: { path: "$identityDocs", preserveNullAndEmptyArrays: false } },
-  { $match: { "identityDocs.common.taxIdentificationNumberLast4": "1234" } }
+  { $match: { "identityDocs.common.taxIdentificationNumber": "123456789" } }
 ]
 ```
 
@@ -377,11 +377,13 @@ java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar mongo-sql \
 
 The implementation uses:
 - CTE (WITH clause) pattern for multi-collection JOINs
-- `json_textcontains("DATA", '$.path', 'term', label)` for text search
+- `json_textcontains("DATA", '$.path', 'term', label)` for fuzzy text search on ALL conditions
 - `JSON_VALUE("DATA", '$.path')` for scalar value extraction
 - `/*+ DOMAIN_INDEX_SORT */` hint for optimized score sorting
+- Combined relevance scores averaged across all fuzzy matches
+- `%term` pattern for ends-with matching (SSN, account last 4)
 
-**Note:** UC-5, UC-6, UC-7 have issues with array paths in `json_textcontains()`. See [UC_UNIFIED_SUMMARY.md](UC_UNIFIED_SUMMARY.md) for details.
+See [UC_UNIFIED_SUMMARY.md](UC_UNIFIED_SUMMARY.md) for detailed query patterns and benchmark results.
 
 ### UC Unified Search (DBMS_SEARCH.FIND)
 
@@ -450,21 +452,21 @@ See `config/hybrid-search-config.yaml` for configuration and `results/BENCHMARK_
 | uc2_phone_ssn_account | Phone + SSN + Account (3-way) | 6.91ms | 7.73ms | 144.6/sec |
 | uc1_phone_ssn_last4 | Phone + SSN last 4 (2-way) | 7.87ms | 8.85ms | 127.0/sec |
 
-### Multi-Collection Join Queries (UC-1 through UC-7) - SCORE() Approach
+### Multi-Collection Join Queries (UC-1 through UC-7) - MongoDB $sql Approach
 
-Using Oracle Text SCORE() with full JSON search indexes:
+Using MongoDB `$sql` operator with `json_textcontains()` for fuzzy matching on ALL conditions:
 
-| Query | Description | Join Chain | Avg | P50 | P95 | Throughput | Docs |
-|-------|-------------|------------|-----|-----|-----|------------|------|
-| UC-1 | Phone + SSN Last 4 | phone → identity | 6.86ms | 6.31ms | 8.39ms | 145.7/s | 1.0 |
-| UC-2 | Phone + SSN + Account | phone → identity → account | 7.87ms | 7.43ms | 9.83ms | 127.0/s | 1.0 |
-| UC-3 | Phone + Account Last 4 | phone → identity → account | 5.51ms | 5.48ms | 5.77ms | 181.6/s | 1.0 |
-| UC-4 | Account + SSN | account → identity | 5.43ms | 5.23ms | 6.68ms | 184.0/s | 1.0 |
-| UC-5 | City/State/ZIP + SSN + Account | address → identity → account | 9.88ms | 9.38ms | 11.68ms | 101.2/s | 1.0 |
-| UC-6 | Email + Account Last 4 | identity → account | 5.21ms | 5.18ms | 5.52ms | 191.8/s | 1.0 |
-| UC-7 | Email + Phone + Account | identity → phone → account | 6.58ms | 6.52ms | 7.40ms | 152.1/s | 1.0 |
+| Query | Description | Avg | P95 | Throughput | Status |
+|-------|-------------|-----|-----|------------|--------|
+| UC-1 | Phone + SSN | 34.14ms | 39.87ms | 29.3/s | 20/20 |
+| UC-2 | Phone + SSN + Account | 46.98ms | 62.11ms | 21.3/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | 18.47ms | 18.88ms | 54.1/s | 20/20 |
+| UC-4 | Account + SSN | 32.42ms | 37.95ms | 30.8/s | 20/20 |
+| UC-5 | City/State/ZIP + SSN + Account | 29.35ms | 35.33ms | 34.1/s | 20/20 |
+| UC-6 | Email + Account Last 4 | 6.23ms | 6.58ms | 160.5/s | 20/20 |
+| UC-7 | Email + Phone + Account | 6.42ms | 6.80ms | 155.7/s | 20/20 |
 
-**Note:** See [UC_UNIFIED_SUMMARY.md](UC_UNIFIED_SUMMARY.md) for detailed query patterns and SQL examples.
+**Note:** All 7 UC queries pass 20/20 with fuzzy matching on ALL conditions. See [UC_UNIFIED_SUMMARY.md](UC_UNIFIED_SUMMARY.md) for detailed query patterns.
 
 ### Address Queries (Higher Latency)
 
