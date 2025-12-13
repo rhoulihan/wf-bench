@@ -1,5 +1,38 @@
 # UC Unified Search Summary
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Configuration](#configuration)
+- [Query Workflow Diagram](#query-workflow-diagram)
+- [Implementation Approach](#implementation-approach)
+- [Use Cases (UC 1-7)](#use-cases-uc-1-7)
+  - [UC-1: Phone + SSN](#uc-1-phone--ssn-ends-with)
+  - [UC-2: Phone + SSN + Account Last 4](#uc-2-phone--ssn--account-last-4)
+  - [UC-3: Phone + Account Last 4](#uc-3-phone--account-last-4)
+  - [UC-4: Account Number + SSN](#uc-4-account-number--ssn)
+  - [UC-5: City/State/ZIP + SSN + Account Last 4](#uc-5-citystatezip--ssn--account-last-4)
+  - [UC-6: Email + Account Last 4](#uc-6-email--account-last-4)
+  - [UC-7: Email + Phone + Account Number](#uc-7-email--phone--account-number)
+- [Response Format](#response-format)
+- [Benchmark Results](#benchmark-results-december-13-2025)
+- [Key JSON Paths](#key-json-paths)
+- [Complete MongoDB $sql Command Syntax](#complete-mongodb-sql-command-syntax)
+  - [UC-1 Query](#uc-1-phone--ssn-ends-with-1)
+  - [UC-2 Query](#uc-2-phone--ssn--account-last-4-1)
+  - [UC-3 Query](#uc-3-phone--account-last-4-1)
+  - [UC-4 Query](#uc-4-account-number--ssn-ends-with)
+  - [UC-5 Query](#uc-5-citystatezip--ssn--account-last-4-1)
+  - [UC-6 Query](#uc-6-email--account-last-4-1)
+  - [UC-7 Query](#uc-7-email--phone--account-number-1)
+  - [Key Syntax Notes](#key-syntax-notes)
+- [CLI Usage](#cli-usage)
+- [Implementation Files](#implementation-files)
+- [Known Issues and Solutions](#known-issues-and-solutions)
+- [Notes](#notes)
+
+---
+
 ## Overview
 
 This document provides a comprehensive summary of the UC 1-7 unified search implementation using MongoDB `$sql` operator with `json_textcontains()` for fuzzy matching on Oracle Autonomous Database 23ai.
