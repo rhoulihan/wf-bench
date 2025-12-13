@@ -28,7 +28,7 @@ This document provides a comprehensive summary of the UC 1-7 unified search impl
 | `identity` | Customer identity records | customerNumber, fullName, taxIdentificationNumberLast4, primaryEmail |
 | `phone` | Phone number records | phoneKey.customerNumber, phoneKey.phoneNumber |
 | `account` | Account records | accountHolders[0].customerNumber, accountKey.accountNumber, accountKey.accountNumberLast4 |
-| `address` | Address records (one doc per address) | _id.customerNumber, _id.addressKey, cityName, stateCode, postalCode |
+| `address` | Address records (array per customer) | _id.customerNumber, addresses[].cityName, addresses[].stateCode, addresses[].postalCode |
 
 ### Indexes
 Full JSON search indexes created for Oracle Text CONTAINS() operations:
@@ -151,7 +151,7 @@ FETCH FIRST ? ROWS ONLY
 
 ### UC-5: City/State/ZIP + SSN Last 4 + Account Last 4
 **Description:** Search for customers by geographic location, SSN last 4, and account last 4
-**Collections:** address (flat structure), identity, account
+**Collections:** address (array per customer), identity, account
 **Input Parameters:**
 - City (full-text search via json_textcontains)
 - State Code (exact match)
@@ -159,7 +159,7 @@ FETCH FIRST ? ROWS ONLY
 - SSN Last 4 (exact match)
 - Account Last 4 (exact match)
 
-**Note:** Address documents use flat structure with one document per address. Fields like `cityName`, `stateCode`, `postalCode` are at top level, not in an array.
+**Note:** Use `$.addresses.cityName` (without array index) - matches any element in the addresses array. Array index syntax like `$.addresses[0].cityName` fails with ORA-40469.
 
 **Query Pattern (MongoDB $sql):**
 ```sql
@@ -167,9 +167,9 @@ WITH
 addresses AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
   FROM "address"
-  WHERE json_textcontains("DATA", '$."cityName"', ?, 1)
-    AND JSON_VALUE("DATA", '$.stateCode') = ?
-    AND JSON_VALUE("DATA", '$.postalCode') = ?
+  WHERE json_textcontains("DATA", '$."addresses"."cityName"', ?, 1)
+    AND JSON_VALUE("DATA", '$.addresses.stateCode') = ?
+    AND JSON_VALUE("DATA", '$.addresses.postalCode') = ?
   ORDER BY score(1) DESC
 ),
 identities AS (
@@ -415,18 +415,20 @@ Avg Results:     1.0 docs
 | `$.accountKey.accountNumber` | Full account number |
 | `$.accountKey.accountNumberLast4` | Last 4 digits of account |
 
-### Address Collection (Flat Structure)
+### Address Collection (Array Structure)
 | Path | Description |
 |------|-------------|
 | `$._id.customerNumber` | Customer number (foreign key) |
 | `$._id.customerCompanyNumber` | Company number |
-| `$._id.addressKey` | Unique address key |
-| `$.addressLine1` | Street address |
-| `$.cityName` | City |
-| `$.stateCode` | State code |
-| `$.postalCode` | ZIP code |
-| `$.countryCode` | Country code |
-| `$.addressUseCode` | Address purpose (CUSTOMER_RESIDENCE, BILLING_ADDRESS, etc.) |
+| `$.addresses` | Array of address objects |
+| `$.addresses.addressLine1` | Street address (use without index for text search) |
+| `$.addresses.cityName` | City (use without index for text search) |
+| `$.addresses.stateCode` | State code |
+| `$.addresses.postalCode` | ZIP code |
+| `$.addresses.countryCode` | Country code |
+| `$.addresses.addressUseCode` | Address purpose (CUSTOMER_RESIDENCE, BILLING_ADDRESS, etc.) |
+
+**Note:** For `json_textcontains()`, use paths without array index (e.g., `$.addresses.cityName`) to match any element in the array.
 
 ---
 
@@ -470,17 +472,17 @@ In addition to JDBC-based queries, UC 1-7 searches can be executed using the Mon
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN Last 4 | **19.64 ms** | 23.92 ms | 50.9/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **28.52 ms** | 35.84 ms | 35.1/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **22.03 ms** | 26.69 ms | 45.4/s | 20/20 |
-| UC-4 | Account + SSN | **19.66 ms** | 26.03 ms | 50.9/s | 12/20* |
-| UC-5 | City/State/ZIP + SSN + Account | **34.97 ms** | 43.33 ms | 28.6/s | 20/20 |
-| UC-6 | Email + Account Last 4 | **20.58 ms** | 24.72 ms | 48.6/s | 20/20 |
-| UC-7 | Email + Phone + Account | **25.98 ms** | 32.42 ms | 38.5/s | 20/20 |
+| UC-1 | Phone + SSN Last 4 | **25.00 ms** | 36.16 ms | 40.0/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **29.98 ms** | 46.50 ms | 33.4/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **26.02 ms** | 37.06 ms | 38.4/s | 20/20 |
+| UC-4 | Account + SSN | **21.42 ms** | 36.22 ms | 46.7/s | 12/20* |
+| UC-5 | City/State/ZIP + SSN + Account | **40.78 ms** | 58.69 ms | 24.5/s | 20/20 |
+| UC-6 | Email + Account Last 4 | **23.04 ms** | 32.38 ms | 43.4/s | 20/20 |
+| UC-7 | Email + Phone + Account | **29.13 ms** | 44.10 ms | 34.3/s | 20/20 |
 
 **Notes:**
 - *UC-4: 8 failures due to Oracle Text parser errors on certain account number patterns (DRG-50901)
-- UC-5 now works after migrating to flat address structure (one document per address)
+- UC-5 works using `$.addresses.cityName` (without array index) - matches any element in addresses array
 - UC-6/UC-7 work after adding `primaryEmail` scalar field to identity documents
 
 ### Data Migrations
@@ -491,20 +493,8 @@ To enable UC-6 and UC-7, run the email migration script to add a scalar `primary
 mongosh "$CONN" --file scripts/migrate-email-scalar.js
 ```
 
-**Address Migration (for UC-5):**
-To enable UC-5, run the address migration script to convert from array to flat structure:
-```bash
-mongosh "$CONN" --file scripts/migrate-address-flat.js
-```
-
-This script:
-1. Reads old-style documents with `addresses` array
-2. Creates one new document per address with flat fields at top level
-3. Includes `addressKey` in `_id` for uniqueness
-4. Deletes old array-style documents after migration
-
 ### Known Issues
-1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469: JSON path expression in JSON_TEXTCONTAINS() is invalid`. **Solution:** Use flat document structure with fields at top level.
+1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469: JSON path expression in JSON_TEXTCONTAINS() is invalid`. **Solution:** Use `$.addresses.cityName` (without array index) which matches any element in the array.
 2. **Account Number Parser:** Some account number patterns cause Oracle Text parser errors (`DRG-50901`)
 
 ### Comparison: JDBC vs MongoDB $sql

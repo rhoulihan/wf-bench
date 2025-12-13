@@ -605,14 +605,15 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldUseFlatAddressPathsNotArrayIndex() {
+        void shouldUseArrayPathsWithoutIndex() {
             String sql = service.buildUC1Query("4155551234", "6789", 10);
-            // Should access address fields at top level (not in array)
-            assertThat(sql).contains("$.addressLine1");
-            assertThat(sql).contains("$.cityName");
-            assertThat(sql).contains("$.stateCode");
-            assertThat(sql).contains("$.postalCode");
-            // Should NOT use array index (addresses is now flat structure)
+            // Should access address fields via $.addresses.fieldName (without array index)
+            // json_textcontains matches any element in array when no index is specified
+            assertThat(sql).contains("$.addresses.addressLine1");
+            assertThat(sql).contains("$.addresses.cityName");
+            assertThat(sql).contains("$.addresses.stateCode");
+            assertThat(sql).contains("$.addresses.postalCode");
+            // Should NOT use array index (fails with ORA-40469)
             assertThat(sql).doesNotContain("addresses[0]");
         }
     }

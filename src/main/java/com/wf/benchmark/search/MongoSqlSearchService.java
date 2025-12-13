@@ -212,11 +212,11 @@ public class MongoSqlSearchService {
               'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
               'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
               'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.countryCode'), 'US'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
               'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
@@ -282,11 +282,11 @@ public class MongoSqlSearchService {
               'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
               'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
               'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.countryCode'), 'US'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
               'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
@@ -352,11 +352,11 @@ public class MongoSqlSearchService {
               'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
               'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
               'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.countryCode'), 'US'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
               'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
@@ -414,11 +414,11 @@ public class MongoSqlSearchService {
               'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
               'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
               'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.countryCode'), 'US'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
               'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
@@ -429,7 +429,8 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-5: City/State/ZIP + SSN Last 4 + Account Last 4.
-     * Note: Address documents now have flat structure with fields at top level (not in array).
+     * Uses $.addresses.cityName (without array index) - matches any element in the array.
+     * Note: Array index syntax like $.addresses[0].cityName fails with ORA-40469.
      */
     public String buildUC5Query(String city, String state, String zip, String ssnLast4, String accountLast4, int limit) {
         String addressColl = collectionPrefix + "address";
@@ -441,9 +442,9 @@ public class MongoSqlSearchService {
             addresses AS (
               SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."cityName"', '%s', 1)
-                AND JSON_VALUE("DATA", '$.stateCode') = '%s'
-                AND JSON_VALUE("DATA", '$.postalCode') = '%s'
+              WHERE json_textcontains("DATA", '$."addresses"."cityName"', '%s', 1)
+                AND JSON_VALUE("DATA", '$.addresses.stateCode') = '%s'
+                AND JSON_VALUE("DATA", '$.addresses.postalCode') = '%s'
               ORDER BY score(1) DESC
             ),
             identities AS (
@@ -480,11 +481,11 @@ public class MongoSqlSearchService {
               'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
               'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
               'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.countryCode'), 'US'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
               'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
@@ -543,11 +544,11 @@ public class MongoSqlSearchService {
               'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
               'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
               'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.countryCode'), 'US'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
               'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
@@ -616,11 +617,11 @@ public class MongoSqlSearchService {
               'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
               'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
               'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.countryCode'), 'US'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
               'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j

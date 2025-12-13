@@ -8,23 +8,7 @@ import java.util.List;
 
 /**
  * Generates address documents matching the sample schema.
- * Each document represents a single address with unique _id including addressKey.
- *
- * <p>Document structure:
- * <pre>
- * {
- *   "_id": {
- *     "customerNumber": 1000000001,
- *     "customerCompanyNumber": 1,
- *     "addressKey": "00100US12345CA..."
- *   },
- *   "addressUseCode": "CUSTOMER_RESIDENCE",
- *   "cityName": "San Francisco",
- *   "stateCode": "CA",
- *   "postalCode": "94102",
- *   ...
- * }
- * </pre>
+ * Each document contains an array of addresses for a customer.
  */
 public class AddressGenerator implements DataGenerator {
 
@@ -38,13 +22,6 @@ public class AddressGenerator implements DataGenerator {
     private final int minAddresses;
     private final int maxAddresses;
     private final String collectionName;
-
-    // Track current customer for multi-address generation
-    private long currentCustomerNumber = -1;
-    private int currentCustomerCompany = -1;
-    private int currentAddressIndex = 0;
-    private int addressesForCurrentCustomer = 0;
-    private List<String> usedCodesForCustomer = new ArrayList<>();
 
     public AddressGenerator(RandomDataProvider random, int minAddresses, int maxAddresses, String collectionPrefix) {
         this.random = random;
@@ -60,27 +37,47 @@ public class AddressGenerator implements DataGenerator {
 
     @Override
     public Document generate(long sequenceNumber) {
-        // Calculate which customer this address belongs to and which address index
-        // We need to map sequenceNumber to (customerNumber, addressIndex)
-        // This is complex because each customer has variable number of addresses
-
-        // Simple approach: use sequenceNumber as unique address sequence
-        // Customer number derived from sequence, but each address gets unique key
-        long customerNumber = BASE_CUSTOMER_NUMBER + (sequenceNumber / 2); // ~2 addresses per customer avg
+        long customerNumber = BASE_CUSTOMER_NUMBER + sequenceNumber;
         int customerCompanyNumber = random.randomInt(1, 3);
 
-        // Determine address use code (cycle through them)
-        int addressIndex = (int)(sequenceNumber % ADDRESS_USE_CODES.size());
-        String addressUseCode = ADDRESS_USE_CODES.get(addressIndex);
+        Document doc = new Document();
 
-        return generateSingleAddressDocument(customerNumber, customerCompanyNumber, addressUseCode, addressIndex + 1);
+        // _id (composite key matching identity)
+        doc.append("_id", new Document()
+            .append("customerNumber", customerNumber)
+            .append("customerCompanyNumber", customerCompanyNumber));
+
+        // addresses array
+        List<Document> addresses = generateAddresses(customerNumber);
+        doc.append("addresses", addresses);
+
+        return doc;
     }
 
-    /**
-     * Generate a single address document with unique _id including addressKey.
-     */
-    private Document generateSingleAddressDocument(long customerNumber, int customerCompanyNumber,
-                                                    String addressUseCode, int occurrenceNumber) {
+    private List<Document> generateAddresses(long customerNumber) {
+        List<Document> addresses = new ArrayList<>();
+        int count = random.randomInt(minAddresses, maxAddresses);
+
+        // Ensure first address is always CUSTOMER_RESIDENCE
+        List<String> usedCodes = new ArrayList<>();
+        usedCodes.add("CUSTOMER_RESIDENCE");
+
+        addresses.add(generateSingleAddress(customerNumber, "CUSTOMER_RESIDENCE", 1));
+
+        // Add additional addresses with different use codes
+        for (int i = 1; i < count; i++) {
+            String useCode = ADDRESS_USE_CODES.stream()
+                .filter(code -> !usedCodes.contains(code))
+                .findFirst()
+                .orElse(ADDRESS_USE_CODES.get(random.randomInt(0, ADDRESS_USE_CODES.size() - 1)));
+            usedCodes.add(useCode);
+            addresses.add(generateSingleAddress(customerNumber, useCode, i + 1));
+        }
+
+        return addresses;
+    }
+
+    private Document generateSingleAddress(long customerNumber, String addressUseCode, int occurrenceNumber) {
         String countryCode = random.country();
         String stateCode = random.stateForCountry(countryCode);
         String city = random.city();
@@ -104,7 +101,7 @@ public class AddressGenerator implements DataGenerator {
             addressLines.add(secondary);
         }
 
-        // Build unique addressKey for _id
+        // Build systemOfRecord addressKey
         String addressKey = String.format("00100%s%s%s%09d%05d%010d",
             countryCode,
             postalCode.replace(" ", "").replace("-", ""),
@@ -115,19 +112,9 @@ public class AddressGenerator implements DataGenerator {
 
         int cdcSeq = random.randomInt(30, 60);
 
-        // Build document with addressKey in _id for uniqueness
-        Document doc = new Document();
-
-        // _id includes addressKey for uniqueness
-        doc.append("_id", new Document()
-            .append("customerNumber", customerNumber)
-            .append("customerCompanyNumber", customerCompanyNumber)
-            .append("addressKey", addressKey));
-
-        // Address fields at top level (not in array)
-        doc.append("addressUseCode", addressUseCode)
+        Document address = new Document()
+            .append("addressUseCode", addressUseCode)
             .append("addressLines", addressLines)
-            .append("addressLine1", addressLines.isEmpty() ? "" : addressLines.get(0))
             .append("cityName", city)
             .append("stateCode", stateCode)
             .append("postalCode", postalCode)
@@ -153,7 +140,7 @@ public class AddressGenerator implements DataGenerator {
                     .append("updatedCdcIdentifier", random.cdcIdentifier(customerNumber, cdcSeq))
                     .append("updatedCdcTimestamp", updatedTs.getTime())));
 
-        return doc;
+        return address;
     }
 
     private String generateEffectiveDate() {
