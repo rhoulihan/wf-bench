@@ -76,16 +76,22 @@
   <rect x="690" y="250" width="160" height="25" rx="3" fill="#f8d7da" stroke="#f1aeb5" stroke-width="1"/>
   <text x="770" y="267" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#842029">(no fuzzy score)</text>
 
-  <!-- Arrows from CTEs to Join -->
-  <line x1="140" y1="285" x2="140" y2="340" stroke="#333" stroke-width="1.5"/>
-  <line x1="140" y1="340" x2="350" y2="340" stroke="#333" stroke-width="1.5"/>
-  <line x1="350" y1="285" x2="350" y2="340" stroke="#333" stroke-width="1.5"/>
-  <line x1="350" y1="340" x2="450" y2="370" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <!-- Arrows from CTEs to Join - using polylines for proper elbows -->
+  <!-- Phones CTE (leftmost) - down, right, down to join box -->
+  <polyline points="140,285 140,330 450,330 450,375"
+            fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
-  <line x1="560" y1="285" x2="560" y2="340" stroke="#333" stroke-width="1.5"/>
-  <line x1="560" y1="340" x2="450" y2="340" stroke="#333" stroke-width="1.5"/>
-  <line x1="770" y1="285" x2="770" y2="340" stroke="#333" stroke-width="1.5"/>
-  <line x1="770" y1="340" x2="560" y2="340" stroke="#333" stroke-width="1.5"/>
+  <!-- Identities CTE - down, right, down to join box -->
+  <polyline points="350,285 350,320 450,320 450,330"
+            fill="none" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Accounts CTE - down, left, down to join box -->
+  <polyline points="560,285 560,320 450,320"
+            fill="none" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Addresses CTE (rightmost) - down, left to join horizontal -->
+  <polyline points="770,285 770,330 450,330"
+            fill="none" stroke="#333" stroke-width="1.5"/>
 
   <!-- Joined CTE Box -->
   <rect x="250" y="375" width="400" height="130" rx="8" fill="url(#joinGrad)" stroke="#ffc107" stroke-width="2" filter="url(#shadow)"/>
@@ -117,15 +123,15 @@
   <text x="450" y="665" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="white">ORDER BY ranking_score DESC</text>
   <text x="450" y="680" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">FETCH FIRST n ROWS ONLY</text>
 
-  <!-- Legend -->
-  <rect x="20" y="320" width="180" height="130" rx="5" fill="white" stroke="#dee2e6" stroke-width="1" filter="url(#shadow)"/>
-  <text x="110" y="340" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#333">Legend</text>
-  <rect x="30" y="350" width="20" height="15" fill="#cfe2ff" stroke="#6c9bd1"/>
-  <text x="60" y="362" font-family="Arial, sans-serif" font-size="10" fill="#333">Fuzzy Score</text>
-  <rect x="30" y="375" width="20" height="15" fill="url(#joinGrad)" stroke="#ffc107"/>
-  <text x="60" y="387" font-family="Arial, sans-serif" font-size="10" fill="#333">Score Combination</text>
-  <rect x="30" y="400" width="20" height="15" fill="url(#resultGrad)" stroke="#28a745"/>
-  <text x="60" y="412" font-family="Arial, sans-serif" font-size="10" fill="#333">JSON Output</text>
-  <text x="30" y="435" font-family="Arial, sans-serif" font-size="9" fill="#666">%term = ends-with pattern</text>
+  <!-- Legend (moved down 50px) -->
+  <rect x="20" y="370" width="180" height="130" rx="5" fill="white" stroke="#dee2e6" stroke-width="1" filter="url(#shadow)"/>
+  <text x="110" y="390" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#333">Legend</text>
+  <rect x="30" y="400" width="20" height="15" fill="#cfe2ff" stroke="#6c9bd1"/>
+  <text x="60" y="412" font-family="Arial, sans-serif" font-size="10" fill="#333">Fuzzy Score</text>
+  <rect x="30" y="425" width="20" height="15" fill="url(#joinGrad)" stroke="#ffc107"/>
+  <text x="60" y="437" font-family="Arial, sans-serif" font-size="10" fill="#333">Score Combination</text>
+  <rect x="30" y="450" width="20" height="15" fill="url(#resultGrad)" stroke="#28a745"/>
+  <text x="60" y="462" font-family="Arial, sans-serif" font-size="10" fill="#333">JSON Output</text>
+  <text x="30" y="485" font-family="Arial, sans-serif" font-size="9" fill="#666">%term = ends-with pattern</text>
 
 </svg>
