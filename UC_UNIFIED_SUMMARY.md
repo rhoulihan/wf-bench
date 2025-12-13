@@ -48,6 +48,19 @@ CREATE INDEX idx_identity_cust_num ON identity(json_value(DATA, '$._id.customerN
 
 ---
 
+## Query Workflow Diagram
+
+![UC Query Workflow](docs/uc-query-workflow.svg)
+
+The diagram shows the CTE-based query pattern:
+1. **Input Parameters** - Search terms (phone, SSN, account, city, etc.)
+2. **CTEs with Fuzzy Matching** - Each collection gets its own CTE with `json_textcontains()` and unique score label
+3. **Joined CTE** - INNER JOINs on customerNumber with combined score calculation
+4. **JSON Output** - SELECT json{} constructs the response document
+5. **Final Ordering** - Results sorted by combined ranking_score
+
+---
+
 ## Implementation Approach
 
 ### Key Design Decisions
@@ -182,6 +195,37 @@ Each UC query returns results in the following format:
 | `postalCode` | String | ZIP code |
 | `countryCode` | String | Country code (defaults to US) |
 | `customerType` | String | Customer, Prospect, or Youth Banking |
+
+### Sample Result Document
+
+All UC queries return results in the same format. Here is a sample result:
+
+```json
+{
+  "rankingScore": 85,
+  "ecn": "1000045678",
+  "companyId": 1,
+  "entityType": "INDIVIDUAL",
+  "name": "John Michael Smith",
+  "alternateName": "John",
+  "taxIdNumber": "123-45-6789",
+  "taxIdType": "SSN",
+  "birthDate": "1985-03-15",
+  "addressLine": "123 Main Street",
+  "cityName": "San Francisco",
+  "state": "CA",
+  "postalCode": "94102",
+  "countryCode": "US",
+  "customerType": "Customer"
+}
+```
+
+**Field Notes:**
+- `rankingScore`: Combined average of all fuzzy match scores (0-100 scale)
+- `ecn`: Enterprise Customer Number used as the join key across all collections
+- `taxIdNumber`: Full SSN/EIN (masked as `***-**-6789` in CLI output)
+- `alternateName`: First name for individuals, business description for non-individuals
+- `customerType`: One of "Customer", "Prospect", or "Youth Banking"
 
 ---
 

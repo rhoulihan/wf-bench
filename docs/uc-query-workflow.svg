@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" width="900" height="700">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+    </marker>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a90d9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#357abd;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cteGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e9ecef;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="joinGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#fff3cd;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ffeeba;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="resultGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#d4edda;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#c3e6cb;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="700" fill="#f5f7fa"/>
+
+  <!-- Title -->
+  <rect x="200" y="15" width="500" height="45" rx="8" fill="url(#headerGrad)" filter="url(#shadow)"/>
+  <text x="450" y="45" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="18" font-weight="bold">UC Query Workflow (MongoDB $sql)</text>
+
+  <!-- Input Parameters Box -->
+  <rect x="350" y="75" width="200" height="50" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="100" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#1565c0">Input Parameters</text>
+  <text x="450" y="115" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#333">phone, ssn, account, city...</text>
+
+  <!-- Arrow from Input to CTEs -->
+  <line x1="450" y1="125" x2="450" y2="150" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- CTE Section Label -->
+  <text x="450" y="170" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#333">WITH Clause (CTEs)</text>
+
+  <!-- CTE Boxes -->
+  <!-- Phones CTE -->
+  <rect x="50" y="185" width="180" height="100" rx="8" fill="url(#cteGrad)" stroke="#6c757d" stroke-width="2" filter="url(#shadow)"/>
+  <text x="140" y="205" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">phones CTE</text>
+  <text x="140" y="225" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">json_textcontains()</text>
+  <text x="140" y="240" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">$.phoneKey.phoneNumber</text>
+  <rect x="60" y="250" width="160" height="25" rx="3" fill="#cfe2ff" stroke="#6c9bd1" stroke-width="1"/>
+  <text x="140" y="267" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#084298">score(1) = pscore</text>
+
+  <!-- Identities CTE -->
+  <rect x="260" y="185" width="180" height="100" rx="8" fill="url(#cteGrad)" stroke="#6c757d" stroke-width="2" filter="url(#shadow)"/>
+  <text x="350" y="205" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">identities CTE</text>
+  <text x="350" y="225" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">json_textcontains()</text>
+  <text x="350" y="240" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">$.common.taxIdentificationNumber</text>
+  <rect x="270" y="250" width="160" height="25" rx="3" fill="#cfe2ff" stroke="#6c9bd1" stroke-width="1"/>
+  <text x="350" y="267" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#084298">score(2) = iscore</text>
+
+  <!-- Accounts CTE -->
+  <rect x="470" y="185" width="180" height="100" rx="8" fill="url(#cteGrad)" stroke="#6c757d" stroke-width="2" filter="url(#shadow)"/>
+  <text x="560" y="205" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">accounts CTE</text>
+  <text x="560" y="225" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">json_textcontains()</text>
+  <text x="560" y="240" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">$.accountKey.accountNumberLast4</text>
+  <rect x="480" y="250" width="160" height="25" rx="3" fill="#cfe2ff" stroke="#6c9bd1" stroke-width="1"/>
+  <text x="560" y="267" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#084298">score(3) = ascore</text>
+
+  <!-- Addresses CTE -->
+  <rect x="680" y="185" width="180" height="100" rx="8" fill="url(#cteGrad)" stroke="#6c757d" stroke-width="2" filter="url(#shadow)"/>
+  <text x="770" y="205" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">addresses CTE</text>
+  <text x="770" y="225" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">SELECT "DATA"</text>
+  <text x="770" y="240" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">FROM "address"</text>
+  <rect x="690" y="250" width="160" height="25" rx="3" fill="#f8d7da" stroke="#f1aeb5" stroke-width="1"/>
+  <text x="770" y="267" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#842029">(no fuzzy score)</text>
+
+  <!-- Arrows from CTEs to Join -->
+  <line x1="140" y1="285" x2="140" y2="340" stroke="#333" stroke-width="1.5"/>
+  <line x1="140" y1="340" x2="350" y2="340" stroke="#333" stroke-width="1.5"/>
+  <line x1="350" y1="285" x2="350" y2="340" stroke="#333" stroke-width="1.5"/>
+  <line x1="350" y1="340" x2="450" y2="370" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+  <line x1="560" y1="285" x2="560" y2="340" stroke="#333" stroke-width="1.5"/>
+  <line x1="560" y1="340" x2="450" y2="340" stroke="#333" stroke-width="1.5"/>
+  <line x1="770" y1="285" x2="770" y2="340" stroke="#333" stroke-width="1.5"/>
+  <line x1="770" y1="340" x2="560" y2="340" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Joined CTE Box -->
+  <rect x="250" y="375" width="400" height="130" rx="8" fill="url(#joinGrad)" stroke="#ffc107" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="395" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#333">joined CTE</text>
+
+  <!-- Join conditions -->
+  <text x="270" y="420" font-family="Arial, sans-serif" font-size="10" fill="#666">JOIN identities i ON customerNumber match</text>
+  <text x="270" y="435" font-family="Arial, sans-serif" font-size="10" fill="#666">JOIN accounts ac ON customerNumber match</text>
+  <text x="270" y="450" font-family="Arial, sans-serif" font-size="10" fill="#666">JOIN addresses a ON customerNumber match</text>
+
+  <!-- Combined Score Formula -->
+  <rect x="270" y="460" width="360" height="35" rx="5" fill="#fff" stroke="#ffc107" stroke-width="2"/>
+  <text x="450" y="483" text-anchor="middle" font-family="Courier New, monospace" font-size="12" font-weight="bold" fill="#856404">(pscore + iscore + ascore) / 3 = ranking_score</text>
+
+  <!-- Arrow to SELECT -->
+  <line x1="450" y1="505" x2="450" y2="530" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- SELECT json Box -->
+  <rect x="200" y="535" width="500" height="80" rx="8" fill="url(#resultGrad)" stroke="#28a745" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="560" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#155724">SELECT json { ... }</text>
+  <text x="450" y="580" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#333">rankingScore, ecn, name, entityType, taxIdNumber,</text>
+  <text x="450" y="595" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#333">addressLine, cityName, state, postalCode, customerType</text>
+
+  <!-- Arrow to Result -->
+  <line x1="450" y1="615" x2="450" y2="640" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- Final Result -->
+  <rect x="300" y="645" width="300" height="40" rx="8" fill="#198754" filter="url(#shadow)"/>
+  <text x="450" y="665" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="white">ORDER BY ranking_score DESC</text>
+  <text x="450" y="680" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">FETCH FIRST n ROWS ONLY</text>
+
+  <!-- Legend -->
+  <rect x="20" y="320" width="180" height="130" rx="5" fill="white" stroke="#dee2e6" stroke-width="1" filter="url(#shadow)"/>
+  <text x="110" y="340" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#333">Legend</text>
+  <rect x="30" y="350" width="20" height="15" fill="#cfe2ff" stroke="#6c9bd1"/>
+  <text x="60" y="362" font-family="Arial, sans-serif" font-size="10" fill="#333">Fuzzy Score</text>
+  <rect x="30" y="375" width="20" height="15" fill="url(#joinGrad)" stroke="#ffc107"/>
+  <text x="60" y="387" font-family="Arial, sans-serif" font-size="10" fill="#333">Score Combination</text>
+  <rect x="30" y="400" width="20" height="15" fill="url(#resultGrad)" stroke="#28a745"/>
+  <text x="60" y="412" font-family="Arial, sans-serif" font-size="10" fill="#333">JSON Output</text>
+  <text x="30" y="435" font-family="Arial, sans-serif" font-size="9" fill="#666">%term = ends-with pattern</text>
+
+</svg>
