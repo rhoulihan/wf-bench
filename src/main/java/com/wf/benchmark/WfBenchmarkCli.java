@@ -3,6 +3,7 @@ package com.wf.benchmark;
 import com.wf.benchmark.command.CleanCommand;
 import com.wf.benchmark.command.HybridSearchCommand;
 import com.wf.benchmark.command.LoadCommand;
+import com.wf.benchmark.command.MongoSqlSearchCommand;
 import com.wf.benchmark.command.QueryCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -19,7 +20,8 @@ import java.util.concurrent.Callable;
         LoadCommand.class,
         QueryCommand.class,
         CleanCommand.class,
-        HybridSearchCommand.class
+        HybridSearchCommand.class,
+        MongoSqlSearchCommand.class
     }
 )
 public class WfBenchmarkCli implements Callable<Integer> {
