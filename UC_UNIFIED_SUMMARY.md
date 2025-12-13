@@ -472,18 +472,20 @@ In addition to JDBC-based queries, UC 1-7 searches can be executed using the Mon
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN Last 4 | **25.00 ms** | 36.16 ms | 40.0/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **29.98 ms** | 46.50 ms | 33.4/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **26.02 ms** | 37.06 ms | 38.4/s | 20/20 |
-| UC-4 | Account + SSN | **21.42 ms** | 36.22 ms | 46.7/s | 12/20* |
-| UC-5 | City/State/ZIP + SSN + Account | **40.78 ms** | 58.69 ms | 24.5/s | 20/20 |
-| UC-6 | Email + Account Last 4 | **23.04 ms** | 32.38 ms | 43.4/s | 20/20 |
-| UC-7 | Email + Phone + Account | **29.13 ms** | 44.10 ms | 34.3/s | 20/20 |
+| UC-1 | Phone + SSN Last 4 | **5.56 ms** | 6.48 ms | 179.8/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **5.31 ms** | 5.82 ms | 188.4/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **5.06 ms** | 5.73 ms | 197.6/s | 20/20 |
+| UC-4 | Account + SSN | **11.71 ms** | 23.76 ms | 85.4/s | 20/20 |
+| UC-5 | City/State/ZIP + SSN + Account | **9.36 ms** | 13.38 ms | 106.9/s | 20/20 |
+| UC-6 | Email + Account Last 4 | **4.82 ms** | 5.53 ms | 207.3/s | 20/20 |
+| UC-7 | Email + Phone + Account | **12.15 ms** | 33.31 ms | 82.3/s | 20/20 |
 
-**Notes:**
-- *UC-4: 8 failures due to Oracle Text parser errors on certain account number patterns (DRG-50901)
-- UC-5 works using `$.addresses.cityName` (without array index) - matches any element in addresses array
-- UC-6/UC-7 work after adding `primaryEmail` scalar field to identity documents
+**All 7 UC queries now pass 20/20!**
+
+**Implementation Notes:**
+- UC-5 uses `$.addresses.cityName` (without array index) - matches any element in addresses array
+- UC-6/UC-7 use `primaryEmail` scalar field for text search (migrated from emails array)
+- Account numbers must be positive to avoid Oracle Text interpreting `-` as NOT operator
 
 ### Data Migrations
 
@@ -493,9 +495,9 @@ To enable UC-6 and UC-7, run the email migration script to add a scalar `primary
 mongosh "$CONN" --file scripts/migrate-email-scalar.js
 ```
 
-### Known Issues
-1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469: JSON path expression in JSON_TEXTCONTAINS() is invalid`. **Solution:** Use `$.addresses.cityName` (without array index) which matches any element in the array.
-2. **Account Number Parser:** Some account number patterns cause Oracle Text parser errors (`DRG-50901`)
+### Known Issues and Solutions
+1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469`. **Solution:** Use `$.addresses.cityName` (without array index) which matches any element in the array.
+2. **Negative Numbers in Text Search:** Oracle Text interprets `-` as a NOT operator. Account numbers starting with `-` cause `DRG-50901` parser errors. **Solution:** Ensure account numbers are always positive (use `Math.abs()`).
 
 ### Comparison: JDBC vs MongoDB $sql
 
