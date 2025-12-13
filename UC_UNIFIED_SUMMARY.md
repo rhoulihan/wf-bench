@@ -448,17 +448,24 @@ In addition to JDBC-based queries, UC 1-7 searches can be executed using the Mon
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN Last 4 | **21.91 ms** | 28.26 ms | 45.6/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **35.05 ms** | 43.33 ms | 28.5/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **39.38 ms** | 47.49 ms | 25.4/s | 20/20 |
-| UC-4 | Account + SSN | **21.54 ms** | 39.10 ms | 46.4/s | 12/20* |
+| UC-1 | Phone + SSN Last 4 | **21.20 ms** | 27.42 ms | 47.2/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **37.74 ms** | 47.94 ms | 26.5/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **30.42 ms** | 56.19 ms | 32.9/s | 20/20 |
+| UC-4 | Account + SSN | **19.96 ms** | 27.01 ms | 50.1/s | 12/20* |
 | UC-5 | City/State/ZIP + SSN + Account | - | - | - | 0/20** |
-| UC-6 | Email + Account Last 4 | - | - | - | 0/20** |
-| UC-7 | Email + Phone + Account | - | - | - | 0/20** |
+| UC-6 | Email + Account Last 4 | **21.66 ms** | 27.90 ms | 46.2/s | 20/20 |
+| UC-7 | Email + Phone + Account | **36.55 ms** | 44.90 ms | 27.4/s | 20/20 |
 
 **Notes:**
 - *UC-4: 8 failures due to Oracle Text parser errors on certain account number patterns
-- **UC-5, UC-6, UC-7: `json_textcontains()` does not support array index paths (e.g., `$."emails"[0]."emailAddress"`)
+- **UC-5: `json_textcontains()` does not support array index paths (e.g., `$."addresses"[0]."cityName"`)
+- UC-6/UC-7 now work after adding `primaryEmail` scalar field (see migration script)
+
+### Data Migration for Email
+To enable UC-6 and UC-7, run the email migration script to add a scalar `primaryEmail` field:
+```bash
+mongosh "$CONN" --file scripts/migrate-email-scalar.js
+```
 
 ### Known Issues
 1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469: JSON path expression in JSON_TEXTCONTAINS() is invalid`

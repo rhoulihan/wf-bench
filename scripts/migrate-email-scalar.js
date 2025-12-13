@@ -9,20 +9,38 @@ const db = db.getSiblingDB('admin');
 const totalCount = db.identity.countDocuments({ emails: { $exists: true, $ne: [] } });
 print(`Found ${totalCount} documents with emails array`);
 
-// Add primaryEmail scalar field extracted from emails[0].emailAddress
-const result = db.identity.updateMany(
-  { emails: { $exists: true, $ne: [] } },
-  [
-    {
-      $set: {
-        primaryEmail: { $arrayElemAt: ["$emails.emailAddress", 0] }
-      }
-    }
-  ]
-);
+// Use cursor iteration since aggregation pipeline doesn't work on Oracle
+let count = 0;
+let batch = [];
+const batchSize = 100;
 
-print(`Modified ${result.modifiedCount} documents`);
-print(`Matched ${result.matchedCount} documents`);
+db.identity.find({ emails: { $exists: true, $ne: [] } }, { _id: 1, emails: 1 }).forEach(function(doc) {
+  if (doc.emails && doc.emails.length > 0 && doc.emails[0].emailAddress) {
+    batch.push({
+      updateOne: {
+        filter: { _id: doc._id },
+        update: { $set: { primaryEmail: doc.emails[0].emailAddress } }
+      }
+    });
+
+    if (batch.length >= batchSize) {
+      db.identity.bulkWrite(batch, { ordered: false });
+      count += batch.length;
+      if (count % 1000 === 0) {
+        print(`Processed ${count} documents...`);
+      }
+      batch = [];
+    }
+  }
+});
+
+// Process remaining batch
+if (batch.length > 0) {
+  db.identity.bulkWrite(batch, { ordered: false });
+  count += batch.length;
+}
+
+print(`Modified ${count} documents`);
 
 // Verify a sample
 const sample = db.identity.findOne({ primaryEmail: { $exists: true } }, { primaryEmail: 1, "emails.emailAddress": 1 });
