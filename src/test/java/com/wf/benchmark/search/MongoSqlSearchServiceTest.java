@@ -596,18 +596,19 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldUseDotNotationForNestedPaths() {
+        void shouldUseJsonValueForNestedPaths() {
             String sql = service.buildUC1Query("4155551234", "6789", 10);
-            // Should access nested fields via dot notation
-            assertThat(sql).contains("\"_id\"");
-            assertThat(sql).contains("\"common\"");
+            // Should access nested fields via JSON_VALUE function
+            assertThat(sql).contains("JSON_VALUE(");
+            assertThat(sql).contains("$._id");
+            assertThat(sql).contains("$.common");
         }
 
         @Test
-        void shouldUseArrayIndexForAddresses() {
+        void shouldUseJsonValueForArrayIndexAccess() {
             String sql = service.buildUC1Query("4155551234", "6789", 10);
-            // Should access first address with [0]
-            assertThat(sql).contains("\"addresses\"[0]");
+            // Should access first address with JSON_VALUE and array index
+            assertThat(sql).contains("$.addresses[0]");
         }
     }
 

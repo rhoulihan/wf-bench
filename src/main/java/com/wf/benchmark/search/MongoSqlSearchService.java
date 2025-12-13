@@ -182,7 +182,7 @@ public class MongoSqlSearchService {
             identities AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."common"."taxIdentificationNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
             ),
             addresses AS (
               SELECT "DATA"
@@ -195,29 +195,29 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 p.pscore ranking_score
               FROM phones p
-              JOIN identities i ON i."DATA"."_id"."customerNumber" = p."DATA"."phoneKey"."customerNumber"
-              LEFT JOIN addresses a ON a."DATA"."_id"."customerNumber" = i."DATA"."_id"."customerNumber"
+              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
+              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
-              'ecn' : j.identity_data."_id"."customerNumber",
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-              'entityType' : j.identity_data."common"."entityTypeIndicator",
-              'name' : j.identity_data."common"."fullName",
+              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
+              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
+              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator" = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName"
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText"
+                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
+                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
+                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-              'taxIdType' : j.identity_data."common"."taxIdentificationType",
-              'birthDate' : j.identity_data."individual"."dateOfBirth",
-              'addressLine' : j.address_data."addresses"[0]."addressLine1",
-              'cityName' : j.address_data."addresses"[0]."cityName",
-              'state' : j.address_data."addresses"[0]."stateCode",
-              'postalCode' : j.address_data."addresses"[0]."postalCode",
-              'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US'),
-              'customerType' : j.identity_data."common"."customerType"
+              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
+              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
+              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
+              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -245,12 +245,12 @@ public class MongoSqlSearchService {
             identities AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."common"."taxIdentificationNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
             ),
             accounts AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."accountKey"."accountNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
             ),
             addresses AS (
               SELECT "DATA"
@@ -264,30 +264,30 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 p.pscore ranking_score
               FROM phones p
-              JOIN identities i ON i."DATA"."_id"."customerNumber" = p."DATA"."phoneKey"."customerNumber"
-              JOIN accounts ac ON ac."DATA"."accountHolders"[0]."customerNumber" = i."DATA"."_id"."customerNumber"
-              LEFT JOIN addresses a ON a."DATA"."_id"."customerNumber" = i."DATA"."_id"."customerNumber"
+              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
+              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
-              'ecn' : j.identity_data."_id"."customerNumber",
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-              'entityType' : j.identity_data."common"."entityTypeIndicator",
-              'name' : j.identity_data."common"."fullName",
+              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
+              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
+              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator" = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName"
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText"
+                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
+                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
+                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-              'taxIdType' : j.identity_data."common"."taxIdentificationType",
-              'birthDate' : j.identity_data."individual"."dateOfBirth",
-              'addressLine' : j.address_data."addresses"[0]."addressLine1",
-              'cityName' : j.address_data."addresses"[0]."cityName",
-              'state' : j.address_data."addresses"[0]."stateCode",
-              'postalCode' : j.address_data."addresses"[0]."postalCode",
-              'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US'),
-              'customerType' : j.identity_data."common"."customerType"
+              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
+              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
+              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
+              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -320,7 +320,7 @@ public class MongoSqlSearchService {
             accounts AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."accountKey"."accountNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
             ),
             addresses AS (
               SELECT "DATA"
@@ -334,30 +334,30 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 p.pscore ranking_score
               FROM phones p
-              JOIN identities i ON i."DATA"."_id"."customerNumber" = p."DATA"."phoneKey"."customerNumber"
-              JOIN accounts ac ON ac."DATA"."accountHolders"[0]."customerNumber" = i."DATA"."_id"."customerNumber"
-              LEFT JOIN addresses a ON a."DATA"."_id"."customerNumber" = i."DATA"."_id"."customerNumber"
+              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
+              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
-              'ecn' : j.identity_data."_id"."customerNumber",
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-              'entityType' : j.identity_data."common"."entityTypeIndicator",
-              'name' : j.identity_data."common"."fullName",
+              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
+              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
+              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator" = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName"
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText"
+                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
+                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
+                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-              'taxIdType' : j.identity_data."common"."taxIdentificationType",
-              'birthDate' : j.identity_data."individual"."dateOfBirth",
-              'addressLine' : j.address_data."addresses"[0]."addressLine1",
-              'cityName' : j.address_data."addresses"[0]."cityName",
-              'state' : j.address_data."addresses"[0]."stateCode",
-              'postalCode' : j.address_data."addresses"[0]."postalCode",
-              'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US'),
-              'customerType' : j.identity_data."common"."customerType"
+              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
+              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
+              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
+              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -384,7 +384,7 @@ public class MongoSqlSearchService {
             identities AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."common"."taxIdentificationNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
             ),
             addresses AS (
               SELECT "DATA"
@@ -397,29 +397,29 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 ac.ascore ranking_score
               FROM accounts ac
-              JOIN identities i ON ac."DATA"."accountHolders"[0]."customerNumber" = i."DATA"."_id"."customerNumber"
-              LEFT JOIN addresses a ON a."DATA"."_id"."customerNumber" = i."DATA"."_id"."customerNumber"
+              JOIN identities i ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
-              'ecn' : j.identity_data."_id"."customerNumber",
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-              'entityType' : j.identity_data."common"."entityTypeIndicator",
-              'name' : j.identity_data."common"."fullName",
+              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
+              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
+              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator" = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName"
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText"
+                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
+                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
+                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-              'taxIdType' : j.identity_data."common"."taxIdentificationType",
-              'birthDate' : j.identity_data."individual"."dateOfBirth",
-              'addressLine' : j.address_data."addresses"[0]."addressLine1",
-              'cityName' : j.address_data."addresses"[0]."cityName",
-              'state' : j.address_data."addresses"[0]."stateCode",
-              'postalCode' : j.address_data."addresses"[0]."postalCode",
-              'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US'),
-              'customerType' : j.identity_data."common"."customerType"
+              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
+              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
+              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
+              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -441,19 +441,19 @@ public class MongoSqlSearchService {
               SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
               FROM "%s"
               WHERE json_textcontains("DATA", '$."addresses"[0]."cityName"', '%s', 1)
-                AND "DATA"."addresses"[0]."stateCode" = '%s'
-                AND "DATA"."addresses"[0]."postalCode" = '%s'
+                AND JSON_VALUE("DATA", '$.addresses[0].stateCode') = '%s'
+                AND JSON_VALUE("DATA", '$.addresses[0].postalCode') = '%s'
               ORDER BY score(1) DESC
             ),
             identities AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."common"."taxIdentificationNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = '%s'
             ),
             accounts AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."accountKey"."accountNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
             ),
             joined AS (
               SELECT
@@ -462,29 +462,29 @@ public class MongoSqlSearchService {
                 ac."DATA" account_data,
                 a.addr_score ranking_score
               FROM addresses a
-              JOIN identities i ON a."DATA"."_id"."customerNumber" = i."DATA"."_id"."customerNumber"
-              JOIN accounts ac ON ac."DATA"."accountHolders"[0]."customerNumber" = i."DATA"."_id"."customerNumber"
+              JOIN identities i ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
-              'ecn' : j.identity_data."_id"."customerNumber",
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-              'entityType' : j.identity_data."common"."entityTypeIndicator",
-              'name' : j.identity_data."common"."fullName",
+              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
+              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
+              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator" = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName"
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText"
+                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
+                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
+                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-              'taxIdType' : j.identity_data."common"."taxIdentificationType",
-              'birthDate' : j.identity_data."individual"."dateOfBirth",
-              'addressLine' : j.address_data."addresses"[0]."addressLine1",
-              'cityName' : j.address_data."addresses"[0]."cityName",
-              'state' : j.address_data."addresses"[0]."stateCode",
-              'postalCode' : j.address_data."addresses"[0]."postalCode",
-              'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US'),
-              'customerType' : j.identity_data."common"."customerType"
+              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
+              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
+              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
+              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -512,7 +512,7 @@ public class MongoSqlSearchService {
             accounts AS (
               SELECT "DATA"
               FROM "%s"
-              WHERE "DATA"."accountKey"."accountNumberLast4" = '%s'
+              WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = '%s'
             ),
             addresses AS (
               SELECT "DATA"
@@ -525,29 +525,29 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 i.iscore ranking_score
               FROM identities i
-              JOIN accounts ac ON ac."DATA"."accountHolders"[0]."customerNumber" = i."DATA"."_id"."customerNumber"
-              LEFT JOIN addresses a ON a."DATA"."_id"."customerNumber" = i."DATA"."_id"."customerNumber"
+              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.ranking_score,
-              'ecn' : j.identity_data."_id"."customerNumber",
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-              'entityType' : j.identity_data."common"."entityTypeIndicator",
-              'name' : j.identity_data."common"."fullName",
+              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
+              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
+              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator" = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName"
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText"
+                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
+                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
+                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-              'taxIdType' : j.identity_data."common"."taxIdentificationType",
-              'birthDate' : j.identity_data."individual"."dateOfBirth",
-              'addressLine' : j.address_data."addresses"[0]."addressLine1",
-              'cityName' : j.address_data."addresses"[0]."cityName",
-              'state' : j.address_data."addresses"[0]."stateCode",
-              'postalCode' : j.address_data."addresses"[0]."postalCode",
-              'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US'),
-              'customerType' : j.identity_data."common"."customerType"
+              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
+              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
+              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
+              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -597,30 +597,30 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 (i.iscore + p.pscore + ac.ascore) / 3 combined_score
               FROM identities i
-              JOIN phones p ON p."DATA"."phoneKey"."customerNumber" = i."DATA"."_id"."customerNumber"
-              JOIN accounts ac ON ac."DATA"."accountHolders"[0]."customerNumber" = i."DATA"."_id"."customerNumber"
-              LEFT JOIN addresses a ON a."DATA"."_id"."customerNumber" = i."DATA"."_id"."customerNumber"
+              JOIN phones p ON JSON_VALUE(p."DATA", '$.phoneKey.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              LEFT JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
               'rankingScore' : j.combined_score,
-              'ecn' : j.identity_data."_id"."customerNumber",
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber", 1),
-              'entityType' : j.identity_data."common"."entityTypeIndicator",
-              'name' : j.identity_data."common"."fullName",
+              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
+              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
+              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
+              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator" = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName"
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText"
+                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
+                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
+                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber",
-              'taxIdType' : j.identity_data."common"."taxIdentificationType",
-              'birthDate' : j.identity_data."individual"."dateOfBirth",
-              'addressLine' : j.address_data."addresses"[0]."addressLine1",
-              'cityName' : j.address_data."addresses"[0]."cityName",
-              'state' : j.address_data."addresses"[0]."stateCode",
-              'postalCode' : j.address_data."addresses"[0]."postalCode",
-              'countryCode' : NVL(j.address_data."addresses"[0]."countryCode", 'US'),
-              'customerType' : j.identity_data."common"."customerType"
+              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
+              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
+              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
+              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
+              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
+              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
+              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
+              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
+              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
             }
             FROM joined j
             ORDER BY j.combined_score DESC
