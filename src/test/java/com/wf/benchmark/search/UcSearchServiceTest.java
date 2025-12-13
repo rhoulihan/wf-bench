@@ -405,9 +405,13 @@ class UcSearchServiceTest {
             // When - UC-1 style: Phone + SSN Last 4
             String query = ucSearchService.buildFuzzyOrQuery(List.of("5551234567", "6789"), 10);
 
-            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
-            assertThat(query).contains("DBMS_SEARCH.FIND");
-            assertThat(query).contains("idx_bench_uc_unified");
+            // Then - uses CONTAINS with fuzzy OR query on source tables via V_UC_ views
+            assertThat(query).contains("CONTAINS");
+            // Now queries source tables directly with V_UC_ views
+            assertThat(query).contains("V_UC_PHONE");
+            assertThat(query).contains("V_UC_IDENTITY");
+            assertThat(query).contains("V_UC_ACCOUNT");
+            assertThat(query).contains("V_UC_ADDRESS");
             assertThat(query).contains("fuzzy(5551234567)");
             assertThat(query).contains("fuzzy(6789)");
             assertThat(query).contains("OR");
@@ -418,9 +422,11 @@ class UcSearchServiceTest {
             // When - UC-2 style: Phone + SSN Last 4 + Account Last 4
             String query = ucSearchService.buildFuzzyOrQuery(List.of("5551234567", "6789", "1234"), 10);
 
-            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
-            assertThat(query).contains("DBMS_SEARCH.FIND");
-            assertThat(query).contains("idx_bench_uc_unified");
+            // Then - uses CONTAINS with fuzzy OR query on source tables via V_UC_ views
+            assertThat(query).contains("CONTAINS");
+            // Now queries source tables directly with V_UC_ views
+            assertThat(query).contains("V_UC_PHONE");
+            assertThat(query).contains("V_UC_IDENTITY");
             assertThat(query).contains("fuzzy(5551234567)");
             assertThat(query).contains("fuzzy(6789)");
             assertThat(query).contains("fuzzy(1234)");
@@ -431,8 +437,8 @@ class UcSearchServiceTest {
             // When - UC-3 style: Phone + Account Last 4
             String query = ucSearchService.buildFuzzyOrQuery(List.of("5551234567", "1234"), 10);
 
-            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
-            assertThat(query).contains("DBMS_SEARCH.FIND");
+            // Then - uses CONTAINS with fuzzy OR query on index table
+            assertThat(query).contains("CONTAINS");
             assertThat(query).contains("fuzzy(5551234567)");
             assertThat(query).contains("fuzzy(1234)");
         }
@@ -442,8 +448,8 @@ class UcSearchServiceTest {
             // When - UC-4 style: Account Number + SSN Last 4
             String query = ucSearchService.buildFuzzyOrQuery(List.of("1234567890", "6789"), 10);
 
-            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
-            assertThat(query).contains("DBMS_SEARCH.FIND");
+            // Then - uses CONTAINS with fuzzy OR query on index table
+            assertThat(query).contains("CONTAINS");
             assertThat(query).contains("fuzzy(1234567890)");
             assertThat(query).contains("fuzzy(6789)");
         }
@@ -453,8 +459,8 @@ class UcSearchServiceTest {
             // When - UC-5 style: City/State/ZIP + SSN Last 4 + Account Last 4
             String query = ucSearchService.buildFuzzyOrQuery(List.of("New York", "NY", "10001", "6789", "1234"), 10);
 
-            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
-            assertThat(query).contains("DBMS_SEARCH.FIND");
+            // Then - uses CONTAINS with fuzzy OR query on index table
+            assertThat(query).contains("CONTAINS");
             assertThat(query).contains("fuzzy(New York)");
             assertThat(query).contains("fuzzy(NY)");
             assertThat(query).contains("fuzzy(10001)");
@@ -465,8 +471,8 @@ class UcSearchServiceTest {
             // When - UC-6 style: Email + Account Last 4
             String query = ucSearchService.buildFuzzyOrQuery(List.of("john@example.com", "1234"), 10);
 
-            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
-            assertThat(query).contains("DBMS_SEARCH.FIND");
+            // Then - uses CONTAINS with fuzzy OR query on index table
+            assertThat(query).contains("CONTAINS");
             assertThat(query).contains("fuzzy(john@example.com)");
             assertThat(query).contains("fuzzy(1234)");
         }
@@ -476,8 +482,8 @@ class UcSearchServiceTest {
             // When - UC-7 style: Email + Phone + Account Number
             String query = ucSearchService.buildFuzzyOrQuery(List.of("john@example.com", "5551234567", "1234567890"), 10);
 
-            // Then - uses DBMS_SEARCH.FIND with fuzzy OR query
-            assertThat(query).contains("DBMS_SEARCH.FIND");
+            // Then - uses CONTAINS with fuzzy OR query on index table
+            assertThat(query).contains("CONTAINS");
             assertThat(query).contains("fuzzy(john@example.com)");
             assertThat(query).contains("fuzzy(5551234567)");
             assertThat(query).contains("fuzzy(1234567890)");

@@ -238,14 +238,21 @@ public class UcSearchService {
 
     /**
      * Returns the PL/SQL statements to add sources (tables) to the unified index.
-     * Uses DBMS_SEARCH.ADD_SOURCE to add each collection to the index.
+     * Uses DBMS_SEARCH.ADD_SOURCE with named parameters to add each collection to the index.
+     * Table names are quoted because MongoDB API collections are created with lowercase names.
      */
     public List<String> getAddSourceStatements() {
+        // Use named parameters and quote table names for case-sensitivity
+        String identityTable = "\"" + collectionPrefix + "identity\"";
+        String phoneTable = "\"" + collectionPrefix + "phone\"";
+        String accountTable = "\"" + collectionPrefix + "account\"";
+        String addressTable = "\"" + collectionPrefix + "address\"";
+
         return List.of(
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + collectionPrefix + "identity'); END;",
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + collectionPrefix + "phone'); END;",
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + collectionPrefix + "account'); END;",
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + collectionPrefix + "address'); END;"
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + identityTable + "'); END;",
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + phoneTable + "'); END;",
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + accountTable + "'); END;",
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + addressTable + "'); END;"
         );
     }
 
@@ -262,63 +269,75 @@ public class UcSearchService {
 
     /**
      * Returns SQL to create the identity UC view with only required fields.
+     * Projects a JSON column using JSON_OBJECT so DBMS_SEARCH can populate DATA.
      * Fields: customerNumber (PK), taxIdentificationNumberLast4, fullName, entityTypeIndicator, email
      */
     public String getCreateIdentityUcViewSql() {
         return """
             CREATE OR REPLACE VIEW %sidentity AS
             SELECT
-                json_value(DATA, '$._id.customerNumber') as customer_number,
-                json_value(DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4,
-                json_value(DATA, '$.common.fullName') as full_name,
-                json_value(DATA, '$.common.entityTypeIndicator') as entity_type,
-                json_value(DATA, '$.emails[0].emailAddress') as email
-            FROM %sidentity
+                JSON_OBJECT(
+                    'customerNumber' VALUE json_value(DATA, '$._id.customerNumber'),
+                    'ssnLast4' VALUE json_value(DATA, '$.common.taxIdentificationNumberLast4'),
+                    'fullName' VALUE json_value(DATA, '$.common.fullName'),
+                    'entityType' VALUE json_value(DATA, '$.common.entityTypeIndicator'),
+                    'email' VALUE json_value(DATA, '$.emails[0].emailAddress')
+                ) as DATA
+            FROM "%sidentity"
             """.formatted(getUcViewPrefix(), collectionPrefix);
     }
 
     /**
      * Returns SQL to create the phone UC view with only required fields.
+     * Projects a JSON column using JSON_OBJECT so DBMS_SEARCH can populate DATA.
      * Fields: customerNumber, phoneNumber
      */
     public String getCreatePhoneUcViewSql() {
         return """
             CREATE OR REPLACE VIEW %sphone AS
             SELECT
-                json_value(DATA, '$.phoneKey.customerNumber') as customer_number,
-                json_value(DATA, '$.phoneKey.phoneNumber') as phone_number
-            FROM %sphone
+                JSON_OBJECT(
+                    'customerNumber' VALUE json_value(DATA, '$.phoneKey.customerNumber'),
+                    'phoneNumber' VALUE json_value(DATA, '$.phoneKey.phoneNumber')
+                ) as DATA
+            FROM "%sphone"
             """.formatted(getUcViewPrefix(), collectionPrefix);
     }
 
     /**
      * Returns SQL to create the account UC view with only required fields.
+     * Projects a JSON column using JSON_OBJECT so DBMS_SEARCH can populate DATA.
      * Fields: customerNumber, accountNumber, accountNumberLast4
      */
     public String getCreateAccountUcViewSql() {
         return """
             CREATE OR REPLACE VIEW %saccount AS
             SELECT
-                json_value(DATA, '$.accountHolders[0].customerNumber') as customer_number,
-                json_value(DATA, '$.accountKey.accountNumber') as account_number,
-                json_value(DATA, '$.accountKey.accountNumberLast4') as account_last4
-            FROM %saccount
+                JSON_OBJECT(
+                    'customerNumber' VALUE json_value(DATA, '$.accountKey.customerNumber'),
+                    'accountNumber' VALUE json_value(DATA, '$.accountKey.accountNumber'),
+                    'accountLast4' VALUE json_value(DATA, '$.accountKey.accountNumberLast4')
+                ) as DATA
+            FROM "%saccount"
             """.formatted(getUcViewPrefix(), collectionPrefix);
     }
 
     /**
      * Returns SQL to create the address UC view with only required fields.
+     * Projects a JSON column using JSON_OBJECT so DBMS_SEARCH can populate DATA.
      * Fields: customerNumber, cityName, stateCode, postalCode
      */
     public String getCreateAddressUcViewSql() {
         return """
             CREATE OR REPLACE VIEW %saddress AS
             SELECT
-                json_value(DATA, '$._id.customerNumber') as customer_number,
-                json_value(DATA, '$.cityName') as city,
-                json_value(DATA, '$.stateCode') as state,
-                json_value(DATA, '$.postalCode') as zip
-            FROM %saddress
+                JSON_OBJECT(
+                    'customerNumber' VALUE json_value(DATA, '$._id.customerNumber'),
+                    'city' VALUE json_value(DATA, '$.cityName'),
+                    'state' VALUE json_value(DATA, '$.stateCode'),
+                    'zip' VALUE json_value(DATA, '$.postalCode')
+                ) as DATA
+            FROM "%saddress"
             """.formatted(getUcViewPrefix(), collectionPrefix);
     }
 
@@ -349,13 +368,15 @@ public class UcSearchService {
     /**
      * Returns the PL/SQL statements to add UC views to the unified index.
      * These views contain only the fields needed for UC 1-7 queries.
+     * Uses named parameters for DBMS_SEARCH.ADD_SOURCE.
      */
     public List<String> getAddUcViewSourceStatements() {
+        // Views are created with uppercase names by default in Oracle, so no quoting needed
         return List.of(
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + getUcViewPrefix() + "identity'); END;",
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + getUcViewPrefix() + "phone'); END;",
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + getUcViewPrefix() + "account'); END;",
-            "BEGIN DBMS_SEARCH.ADD_SOURCE('" + getUnifiedIndexName() + "', '" + getUcViewPrefix() + "address'); END;"
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + getUcViewPrefix().toUpperCase() + "IDENTITY'); END;",
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + getUcViewPrefix().toUpperCase() + "PHONE'); END;",
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + getUcViewPrefix().toUpperCase() + "ACCOUNT'); END;",
+            "BEGIN DBMS_SEARCH.ADD_SOURCE(index_name => '" + getUnifiedIndexName() + "', source_name => '" + getUcViewPrefix().toUpperCase() + "ADDRESS'); END;"
         );
     }
 
@@ -545,20 +566,94 @@ public class UcSearchService {
     }
 
     /**
-     * Builds a fuzzy OR query for DBMS_SEARCH.FIND.
-     * Uses JSON QBE syntax with fuzzy matching on all terms.
+     * Builds a query for DBMS_SEARCH using RESID join pattern.
+     *
+     * DBMS_SEARCH creates an index table but doesn't materialize the DATA column.
+     * We join the index table back to source views via RESID to get the actual data.
+     *
+     * <p>Join pattern: HEXTORAW(json_value(idx.METADATA, '$.KEY.RESID')) = view.RESID
+     *
+     * <p>This queries across all source views (V_UC_PHONE, V_UC_IDENTITY, V_UC_ACCOUNT, V_UC_ADDRESS)
+     * and returns results with customerNumber, source, matched value, and score.
      */
     public String buildFuzzyOrQuery(List<String> searchTerms, int limit) {
-        // Build fuzzy search with OR between terms
-        String fuzzyTerms = searchTerms.stream()
+        // Build Oracle Text search with OR between terms
+        // Using fuzzy() wrapper for fuzzy matching
+        String searchExpression = searchTerms.stream()
             .filter(t -> t != null && !t.isBlank())
             .map(t -> "fuzzy(" + escapeForOracle(t) + ")")
             .reduce((a, b) -> a + " OR " + b)
             .orElse("");
 
-        return String.format(
-            "SELECT DBMS_SEARCH.FIND('%s', JSON('{\"$query\":\"%s\",\"$search\":{\"limit\":%d}}')) AS RESULT FROM DUAL",
-            getUnifiedIndexName(), fuzzyTerms, limit * 10 // Get more hits to ensure we find matching sets
+        // Query each source view directly using CONTAINS on the source tables (not the index table)
+        // The source tables have Oracle Text search indexes that support CONTAINS
+        // Union results from all views with their customerNumbers
+        return String.format("""
+            SELECT * FROM (
+                -- Phone matches
+                SELECT
+                    json_value(v.DATA, '$.customerNumber') as customer_number,
+                    'V_UC_PHONE' as source,
+                    json_value(v.DATA, '$.phoneNumber') as matched_value,
+                    'phone_number' as matched_field,
+                    SCORE(1) as search_score
+                FROM "%sphone" p, V_UC_PHONE v
+                WHERE p.RESID = v.RESID
+                AND CONTAINS(p.DATA, '%s', 1) > 0
+
+                UNION ALL
+
+                -- Identity matches (SSN last 4 or email)
+                SELECT
+                    json_value(v.DATA, '$.customerNumber') as customer_number,
+                    'V_UC_IDENTITY' as source,
+                    COALESCE(json_value(v.DATA, '$.ssnLast4'), json_value(v.DATA, '$.email')) as matched_value,
+                    CASE
+                        WHEN json_value(v.DATA, '$.ssnLast4') IS NOT NULL THEN 'ssn_last4'
+                        ELSE 'email'
+                    END as matched_field,
+                    SCORE(2) as search_score
+                FROM "%sidentity" i, V_UC_IDENTITY v
+                WHERE i.RESID = v.RESID
+                AND CONTAINS(i.DATA, '%s', 2) > 0
+
+                UNION ALL
+
+                -- Account matches
+                SELECT
+                    json_value(v.DATA, '$.customerNumber') as customer_number,
+                    'V_UC_ACCOUNT' as source,
+                    COALESCE(json_value(v.DATA, '$.accountNumber'), json_value(v.DATA, '$.accountLast4')) as matched_value,
+                    CASE
+                        WHEN json_value(v.DATA, '$.accountNumber') IS NOT NULL THEN 'account_number'
+                        ELSE 'account_last4'
+                    END as matched_field,
+                    SCORE(3) as search_score
+                FROM "%saccount" a, V_UC_ACCOUNT v
+                WHERE a.RESID = v.RESID
+                AND CONTAINS(a.DATA, '%s', 3) > 0
+
+                UNION ALL
+
+                -- Address matches (city, state, zip)
+                SELECT
+                    json_value(v.DATA, '$.customerNumber') as customer_number,
+                    'V_UC_ADDRESS' as source,
+                    COALESCE(json_value(v.DATA, '$.city'), json_value(v.DATA, '$.state'), json_value(v.DATA, '$.zip')) as matched_value,
+                    'city' as matched_field,
+                    SCORE(4) as search_score
+                FROM "%saddress" addr, V_UC_ADDRESS v
+                WHERE addr.RESID = v.RESID
+                AND CONTAINS(addr.DATA, '%s', 4) > 0
+            )
+            ORDER BY search_score DESC
+            FETCH FIRST %d ROWS ONLY
+            """,
+            collectionPrefix, searchExpression,
+            collectionPrefix, searchExpression,
+            collectionPrefix, searchExpression,
+            collectionPrefix, searchExpression,
+            limit * 10
         );
     }
 
@@ -704,66 +799,88 @@ public class UcSearchService {
     }
 
     /**
-     * Parses DBMS_SEARCH.FIND JSON result into SearchHit records.
-     * DBMS_SEARCH.FIND returns JSON with structure: {"$count": n, "$hit": [...]}
-     * Each hit contains source table name and row data with customer_number.
+     * Parses unified search query results into SearchHit records.
+     * The query returns rows with flat columns (not JSON):
+     *   - CUSTOMER_NUMBER: The customer identifier
+     *   - SOURCE: Source view name (V_UC_PHONE, V_UC_IDENTITY, etc.)
+     *   - MATCHED_VALUE: The value that matched the search term
+     *   - MATCHED_FIELD: The field name (phone_number, ssn_last4, etc.)
+     *   - SEARCH_SCORE: SCORE() value from CONTAINS
+     *
+     * This method iterates through all rows and creates SearchHit records.
      */
     private List<SearchHit> parseDbmsSearchHits(ResultSet rs) throws SQLException {
         List<SearchHit> hits = new ArrayList<>();
 
-        if (!rs.next()) {
-            return hits;
+        while (rs.next()) {
+            try {
+                String customerNumber = rs.getString("CUSTOMER_NUMBER");
+                String source = rs.getString("SOURCE");
+                String matchedValue = rs.getString("MATCHED_VALUE");
+                String matchedField = rs.getString("MATCHED_FIELD");
+                double score = rs.getDouble("SEARCH_SCORE");
+
+                if (customerNumber == null || customerNumber.isEmpty()) {
+                    log.trace("Skipping hit - CUSTOMER_NUMBER is null or empty");
+                    continue;
+                }
+
+                SearchHit hit = new SearchHit(source, customerNumber, matchedField, matchedValue, score);
+                hits.add(hit);
+                log.trace("Parsed hit: source={}, customer={}, field={}, value={}, score={}",
+                        source, customerNumber, matchedField, matchedValue, score);
+
+            } catch (Exception e) {
+                log.trace("Error parsing row: {}", e.getMessage());
+            }
         }
 
-        String jsonResult = rs.getString(1);
-        if (jsonResult == null || jsonResult.isEmpty()) {
-            return hits;
-        }
-
-        log.debug("Parsing DBMS_SEARCH.FIND JSON result (length={})", jsonResult.length());
-
-        // Parse the JSON using simple string parsing
-        // Expected format: {"$count":N,"$hit":[{"$source":"table","$data":{...},"$score":N},...]}
-        try {
-            int hitArrayIdx = jsonResult.indexOf("\"$hit\"");
-            if (hitArrayIdx == -1) {
-                log.debug("No $hit array found in result");
-                return hits;
-            }
-
-            int bracketIdx = jsonResult.indexOf("[", hitArrayIdx);
-            if (bracketIdx == -1) {
-                return hits;
-            }
-
-            // Find matching closing bracket
-            int depth = 0;
-            int hitStart = -1;
-            for (int i = bracketIdx; i < jsonResult.length(); i++) {
-                char c = jsonResult.charAt(i);
-                if (c == '[') depth++;
-                else if (c == ']') {
-                    depth--;
-                    if (depth == 0) break;
-                }
-                else if (c == '{' && depth == 1) {
-                    hitStart = i;
-                }
-                else if (c == '}' && depth == 1 && hitStart != -1) {
-                    // Parse this hit object
-                    String hitJson = jsonResult.substring(hitStart, i + 1);
-                    SearchHit hit = parseHitObject(hitJson);
-                    if (hit != null) {
-                        hits.add(hit);
-                    }
-                    hitStart = -1;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Error parsing DBMS_SEARCH.FIND JSON: {}", e.getMessage());
-        }
-
+        log.debug("Parsed {} search hits from unified query", hits.size());
         return hits;
+    }
+
+    /**
+     * Determines the matched field based on the source view name.
+     * View names are like V_UC_PHONE, V_UC_IDENTITY, etc.
+     */
+    private String determineMatchedFieldFromView(String source, String dataJson) {
+        String sourceLower = source.toLowerCase();
+        if (sourceLower.contains("phone")) {
+            return "phone_number";
+        } else if (sourceLower.contains("identity")) {
+            // Check what field is present - email or ssnLast4
+            if (extractJsonString(dataJson, "email") != null) {
+                return "email";
+            }
+            return "ssn_last4";
+        } else if (sourceLower.contains("account")) {
+            // Check if full account number or last 4
+            if (extractJsonString(dataJson, "accountNumber") != null) {
+                return "account_number";
+            }
+            return "account_last4";
+        } else if (sourceLower.contains("address")) {
+            // Could be city, state, or zip
+            return "city";
+        }
+        return "unknown";
+    }
+
+    /**
+     * Extracts the matched value for the given field from view DATA.
+     */
+    private String extractMatchedValueFromView(String dataJson, String matchedField) {
+        return switch (matchedField) {
+            case "phone_number" -> extractJsonString(dataJson, "phoneNumber");
+            case "ssn_last4" -> extractJsonString(dataJson, "ssnLast4");
+            case "email" -> extractJsonString(dataJson, "email");
+            case "account_number" -> extractJsonString(dataJson, "accountNumber");
+            case "account_last4" -> extractJsonString(dataJson, "accountLast4");
+            case "city" -> extractJsonString(dataJson, "city");
+            case "state" -> extractJsonString(dataJson, "state");
+            case "zip" -> extractJsonString(dataJson, "zip");
+            default -> "";
+        };
     }
 
     /**
@@ -1022,11 +1139,11 @@ public class UcSearchService {
                 json_value(i.DATA, '$.common.taxIdentificationNumber') as tax_id_number,
                 json_value(i.DATA, '$.common.taxIdentificationType') as tax_id_type,
                 json_value(i.DATA, '$.individual.dateOfBirth') as birth_date,
-                json_value(a.DATA, '$.addressLine1') as address_line,
-                json_value(a.DATA, '$.city') as city_name,
-                json_value(a.DATA, '$.state') as state,
-                json_value(a.DATA, '$.postalCode') as postal_code,
-                NVL(json_value(a.DATA, '$.countryCode'), 'US') as country_code,
+                json_value(a.DATA, '$.addresses[0].addressLine1') as address_line,
+                json_value(a.DATA, '$.addresses[0].cityName') as city_name,
+                json_value(a.DATA, '$.addresses[0].stateCode') as state,
+                json_value(a.DATA, '$.addresses[0].postalCode') as postal_code,
+                NVL(json_value(a.DATA, '$.addresses[0].countryCode'), 'US') as country_code,
                 json_value(i.DATA, '$.common.customerType') as customer_type
             FROM %sphone p
             JOIN %sidentity i ON json_value(p.DATA, '$.phoneKey.customerNumber') =
@@ -1056,11 +1173,11 @@ public class UcSearchService {
                 json_value(i.DATA, '$.common.taxIdentificationNumber') as tax_id_number,
                 json_value(i.DATA, '$.common.taxIdentificationType') as tax_id_type,
                 json_value(i.DATA, '$.individual.dateOfBirth') as birth_date,
-                json_value(addr.DATA, '$.addressLine1') as address_line,
-                json_value(addr.DATA, '$.city') as city_name,
-                json_value(addr.DATA, '$.state') as state,
-                json_value(addr.DATA, '$.postalCode') as postal_code,
-                NVL(json_value(addr.DATA, '$.countryCode'), 'US') as country_code,
+                json_value(addr.DATA, '$.addresses[0].addressLine1') as address_line,
+                json_value(addr.DATA, '$.addresses[0].cityName') as city_name,
+                json_value(addr.DATA, '$.addresses[0].stateCode') as state,
+                json_value(addr.DATA, '$.addresses[0].postalCode') as postal_code,
+                NVL(json_value(addr.DATA, '$.addresses[0].countryCode'), 'US') as country_code,
                 json_value(i.DATA, '$.common.customerType') as customer_type
             FROM %sphone p
             JOIN %sidentity i ON json_value(p.DATA, '$.phoneKey.customerNumber') =
@@ -1093,11 +1210,11 @@ public class UcSearchService {
                 json_value(i.DATA, '$.common.taxIdentificationNumber') as tax_id_number,
                 json_value(i.DATA, '$.common.taxIdentificationType') as tax_id_type,
                 json_value(i.DATA, '$.individual.dateOfBirth') as birth_date,
-                json_value(addr.DATA, '$.addressLine1') as address_line,
-                json_value(addr.DATA, '$.city') as city_name,
-                json_value(addr.DATA, '$.state') as state,
-                json_value(addr.DATA, '$.postalCode') as postal_code,
-                NVL(json_value(addr.DATA, '$.countryCode'), 'US') as country_code,
+                json_value(addr.DATA, '$.addresses[0].addressLine1') as address_line,
+                json_value(addr.DATA, '$.addresses[0].cityName') as city_name,
+                json_value(addr.DATA, '$.addresses[0].stateCode') as state,
+                json_value(addr.DATA, '$.addresses[0].postalCode') as postal_code,
+                NVL(json_value(addr.DATA, '$.addresses[0].countryCode'), 'US') as country_code,
                 json_value(i.DATA, '$.common.customerType') as customer_type
             FROM %sphone p
             JOIN %sidentity i ON json_value(p.DATA, '$.phoneKey.customerNumber') =
@@ -1129,11 +1246,11 @@ public class UcSearchService {
                 json_value(i.DATA, '$.common.taxIdentificationNumber') as tax_id_number,
                 json_value(i.DATA, '$.common.taxIdentificationType') as tax_id_type,
                 json_value(i.DATA, '$.individual.dateOfBirth') as birth_date,
-                json_value(addr.DATA, '$.addressLine1') as address_line,
-                json_value(addr.DATA, '$.city') as city_name,
-                json_value(addr.DATA, '$.state') as state,
-                json_value(addr.DATA, '$.postalCode') as postal_code,
-                NVL(json_value(addr.DATA, '$.countryCode'), 'US') as country_code,
+                json_value(addr.DATA, '$.addresses[0].addressLine1') as address_line,
+                json_value(addr.DATA, '$.addresses[0].cityName') as city_name,
+                json_value(addr.DATA, '$.addresses[0].stateCode') as state,
+                json_value(addr.DATA, '$.addresses[0].postalCode') as postal_code,
+                NVL(json_value(addr.DATA, '$.addresses[0].countryCode'), 'US') as country_code,
                 json_value(i.DATA, '$.common.customerType') as customer_type
             FROM %saccount a
             JOIN %sidentity i ON json_value(a.DATA, '$.accountHolders[0].customerNumber') =
@@ -1163,11 +1280,11 @@ public class UcSearchService {
                 json_value(i.DATA, '$.common.taxIdentificationNumber') as tax_id_number,
                 json_value(i.DATA, '$.common.taxIdentificationType') as tax_id_type,
                 json_value(i.DATA, '$.individual.dateOfBirth') as birth_date,
-                json_value(addr.DATA, '$.addressLine1') as address_line,
-                json_value(addr.DATA, '$.city') as city_name,
-                json_value(addr.DATA, '$.state') as state,
-                json_value(addr.DATA, '$.postalCode') as postal_code,
-                NVL(json_value(addr.DATA, '$.countryCode'), 'US') as country_code,
+                json_value(addr.DATA, '$.addresses[0].addressLine1') as address_line,
+                json_value(addr.DATA, '$.addresses[0].cityName') as city_name,
+                json_value(addr.DATA, '$.addresses[0].stateCode') as state,
+                json_value(addr.DATA, '$.addresses[0].postalCode') as postal_code,
+                NVL(json_value(addr.DATA, '$.addresses[0].countryCode'), 'US') as country_code,
                 json_value(i.DATA, '$.common.customerType') as customer_type
             FROM %saddress addr
             JOIN %sidentity i ON json_value(addr.DATA, '$._id.customerNumber') =
@@ -1175,8 +1292,8 @@ public class UcSearchService {
             JOIN %saccount a ON json_value(i.DATA, '$._id.customerNumber') =
                                 json_value(a.DATA, '$.accountHolders[0].customerNumber')
             WHERE CONTAINS(addr.DATA, ?, 1) > 0
-              AND json_value(addr.DATA, '$.state') = ?
-              AND json_value(addr.DATA, '$.postalCode') = ?
+              AND json_value(addr.DATA, '$.addresses[0].stateCode') = ?
+              AND json_value(addr.DATA, '$.addresses[0].postalCode') = ?
               AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
               AND json_value(a.DATA, '$.accountKey.accountNumberLast4') = ?
             ORDER BY SCORE(1) DESC
@@ -1200,11 +1317,11 @@ public class UcSearchService {
                 json_value(i.DATA, '$.common.taxIdentificationNumber') as tax_id_number,
                 json_value(i.DATA, '$.common.taxIdentificationType') as tax_id_type,
                 json_value(i.DATA, '$.individual.dateOfBirth') as birth_date,
-                json_value(addr.DATA, '$.addressLine1') as address_line,
-                json_value(addr.DATA, '$.city') as city_name,
-                json_value(addr.DATA, '$.state') as state,
-                json_value(addr.DATA, '$.postalCode') as postal_code,
-                NVL(json_value(addr.DATA, '$.countryCode'), 'US') as country_code,
+                json_value(addr.DATA, '$.addresses[0].addressLine1') as address_line,
+                json_value(addr.DATA, '$.addresses[0].cityName') as city_name,
+                json_value(addr.DATA, '$.addresses[0].stateCode') as state,
+                json_value(addr.DATA, '$.addresses[0].postalCode') as postal_code,
+                NVL(json_value(addr.DATA, '$.addresses[0].countryCode'), 'US') as country_code,
                 json_value(i.DATA, '$.common.customerType') as customer_type
             FROM %sidentity i
             JOIN %saccount a ON json_value(i.DATA, '$._id.customerNumber') =
@@ -1234,11 +1351,11 @@ public class UcSearchService {
                 json_value(i.DATA, '$.common.taxIdentificationNumber') as tax_id_number,
                 json_value(i.DATA, '$.common.taxIdentificationType') as tax_id_type,
                 json_value(i.DATA, '$.individual.dateOfBirth') as birth_date,
-                json_value(addr.DATA, '$.addressLine1') as address_line,
-                json_value(addr.DATA, '$.city') as city_name,
-                json_value(addr.DATA, '$.state') as state,
-                json_value(addr.DATA, '$.postalCode') as postal_code,
-                NVL(json_value(addr.DATA, '$.countryCode'), 'US') as country_code,
+                json_value(addr.DATA, '$.addresses[0].addressLine1') as address_line,
+                json_value(addr.DATA, '$.addresses[0].cityName') as city_name,
+                json_value(addr.DATA, '$.addresses[0].stateCode') as state,
+                json_value(addr.DATA, '$.addresses[0].postalCode') as postal_code,
+                NVL(json_value(addr.DATA, '$.addresses[0].countryCode'), 'US') as country_code,
                 json_value(i.DATA, '$.common.customerType') as customer_type
             FROM %sidentity i
             JOIN %sphone p ON json_value(i.DATA, '$._id.customerNumber') =

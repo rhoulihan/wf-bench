@@ -66,6 +66,7 @@ public class AccountGenerator implements DataGenerator {
         // Map sequence to primary customer
         long primaryCustomerOffset = (long) (sequenceNumber / accountsPerIdentity);
         long primaryCustomerNumber = BASE_CUSTOMER_NUMBER + primaryCustomerOffset;
+        int customerCompanyNumber = random.randomInt(1, 3);
 
         // Generate account holders
         List<Document> accountHolders = generateAccountHolders(primaryCustomerNumber);
@@ -80,9 +81,12 @@ public class AccountGenerator implements DataGenerator {
         Date updatedTs = random.recentTimestamp();
 
         // Build the account document
+        // Include customerNumber in accountKey for UC search queries (JOIN on customerNumber)
         Document doc = new Document()
             .append("_id", new ObjectId())
             .append("accountKey", new Document()
+                .append("customerNumber", primaryCustomerNumber)
+                .append("customerCompanyNumber", customerCompanyNumber)
                 .append("accountNumber", accountNumber)
                 .append("accountNumberLast4", accountNumberLast4)
                 .append("accountNumberTokenized", generateTokenizedAccount(accountNumber)))

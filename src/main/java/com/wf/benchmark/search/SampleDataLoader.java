@@ -65,7 +65,7 @@ public class SampleDataLoader {
             SELECT
                 json_value(DATA, '$.individual.firstName') as first_name,
                 json_value(DATA, '$.individual.lastName') as last_name
-            FROM %s
+            FROM "%s"
             WHERE json_value(DATA, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
             AND json_value(DATA, '$.individual.firstName') IS NOT NULL
             AND json_value(DATA, '$.individual.lastName') IS NOT NULL
@@ -110,7 +110,7 @@ public class SampleDataLoader {
         String sql = """
             SELECT
                 json_value(DATA, '$.common.fullName') as business_name
-            FROM %s
+            FROM "%s"
             WHERE json_value(DATA, '$.common.entityTypeIndicator') = 'NON_INDIVIDUAL'
             AND json_value(DATA, '$.common.fullName') IS NOT NULL
             FETCH FIRST ? ROWS ONLY
@@ -165,8 +165,17 @@ public class SampleDataLoader {
     }
 
     /**
-     * Load sample UC query parameters from the database by joining identity, phone, account, and address collections.
-     * Results are cached for subsequent calls.
+     * Load sample UC query parameters from the database using a JOIN query that finds
+     * customers with correlated data across phone, identity, and account collections.
+     * This ensures the sample data can actually produce matches in UC search queries.
+     *
+     * <p>Algorithm:
+     * <ol>
+     *   <li>Join phone, identity, and account collections on customerNumber</li>
+     *   <li>Extract correlated values (phone, SSN last 4, account number, etc.)</li>
+     *   <li>Optionally join address for city/state/zip (with fallback)</li>
+     *   <li>Return parameter sets where all values belong to the same customer</li>
+     * </ol>
      *
      * @param count Maximum number of parameter sets to load
      * @return List of [phone, ssnLast4, accountLast4, email, accountNumber, city, state, zip] arrays
@@ -178,46 +187,118 @@ public class SampleDataLoader {
 
         cachedUcParams = new ArrayList<>();
 
-        // Query to join identity, phone, account, and address collections to get correlated UC parameters
-        // Uses the collection prefix pattern: if collection is "bench_identity", derive others
+        // Derive collection names from identity collection
         String identityTable = collection;
-        String phoneTable = collection.endsWith("identity") ?
-            collection.substring(0, collection.length() - 8) + "phone" : "phone";
-        String accountTable = collection.endsWith("identity") ?
-            collection.substring(0, collection.length() - 8) + "account" : "account";
-        String addressTable = collection.endsWith("identity") ?
-            collection.substring(0, collection.length() - 8) + "address" : "address";
+        String phoneTable = deriveTableName("phone");
+        String accountTable = deriveTableName("account");
+        String addressTable = deriveTableName("address");
 
+        try (Connection conn = dataSource.getConnection()) {
+            log.info("Loading correlated UC sample data from collections: identity={}, phone={}, account={}, address={}",
+                    identityTable, phoneTable, accountTable, addressTable);
+
+            // First try: 4-way join (phone, identity, account, address) - all UC cases need these
+            cachedUcParams = loadCorrelatedUcParams(conn, phoneTable, identityTable, accountTable, addressTable, count);
+
+            if (!cachedUcParams.isEmpty()) {
+                log.info("Loaded {} correlated UC parameter sets from 4-way join", cachedUcParams.size());
+            } else {
+                // Fallback: Load from identity only and generate synthetic phone/account values
+                log.warn("No correlated data found via 3-way join. Trying identity-only fallback...");
+                cachedUcParams = loadIdentityOnlyParams(conn, identityTable, count);
+                if (!cachedUcParams.isEmpty()) {
+                    log.info("Loaded {} UC parameter sets from identity-only fallback", cachedUcParams.size());
+                }
+            }
+
+        } catch (SQLException e) {
+            log.warn("Failed to load correlated UC parameters from database: {}. Using fallback.", e.getMessage());
+        }
+
+        // Use fallback if no data loaded
+        if (cachedUcParams.isEmpty()) {
+            log.warn("No UC parameters loaded from database, using fallback data");
+            cachedUcParams = new ArrayList<>(FALLBACK_UC_PARAMS);
+        }
+
+        return cachedUcParams;
+    }
+
+    /**
+     * Load correlated UC parameters using a 4-way JOIN on customerNumber.
+     * This finds customers that have records in phone, identity, account, AND address collections.
+     *
+     * <p>Requires functional indexes on customerNumber fields for optimal performance:
+     * <ul>
+     *   <li>idx_phone_cust_num ON phone(json_value(DATA, '$.phoneKey.customerNumber'))</li>
+     *   <li>idx_account_cust_num ON account(json_value(DATA, '$.accountHolders[0].customerNumber'))</li>
+     *   <li>idx_address_cust_num ON address(json_value(DATA, '$._id.customerNumber'))</li>
+     *   <li>idx_identity_cust_num ON identity(json_value(DATA, '$._id.customerNumber'))</li>
+     * </ul>
+     */
+    private List<String[]> loadCorrelatedUcParams(Connection conn, String phoneTable,
+            String identityTable, String accountTable, String addressTable, int count) throws SQLException {
+        List<String[]> params = new ArrayList<>();
+
+        // 4-way JOIN to find customers with phone, identity, account, and address data
+        // Uses functional indexes on customerNumber for fast lookups
         String sql = """
-            SELECT
-                json_value(p.DATA, '$.phoneKey.phoneNumber') as phone,
-                json_value(i.DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4,
-                json_value(a.DATA, '$.accountKey.accountNumberLast4') as account_last4,
-                json_value(i.DATA, '$.emails[0].emailAddress') as email,
-                json_value(a.DATA, '$.accountKey.accountNumber') as account_number,
-                json_value(addr.DATA, '$.cityName') as city,
-                json_value(addr.DATA, '$.stateCode') as state,
-                json_value(addr.DATA, '$.postalCode') as zip
-            FROM %s i
-            JOIN %s p ON json_value(i.DATA, '$._id.customerNumber') =
-                         json_value(p.DATA, '$.phoneKey.customerNumber')
-            JOIN %s a ON json_value(i.DATA, '$._id.customerNumber') =
-                         json_value(a.DATA, '$.accountHolders[0].customerNumber')
-            JOIN %s addr ON json_value(i.DATA, '$._id.customerNumber') =
-                            json_value(addr.DATA, '$._id.customerNumber')
-            WHERE json_value(p.DATA, '$.phoneKey.phoneNumber') IS NOT NULL
-              AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') IS NOT NULL
-              AND json_value(a.DATA, '$.accountKey.accountNumberLast4') IS NOT NULL
-              AND json_value(i.DATA, '$.emails[0].emailAddress') IS NOT NULL
-              AND json_value(a.DATA, '$.accountKey.accountNumber') IS NOT NULL
-              AND json_value(addr.DATA, '$.cityName') IS NOT NULL
-              AND json_value(addr.DATA, '$.stateCode') IS NOT NULL
-              AND json_value(addr.DATA, '$.postalCode') IS NOT NULL
+            SELECT DISTINCT
+                p.phone,
+                i.ssn_last4,
+                a.account_last4,
+                i.email,
+                a.account_number,
+                i.customer_number,
+                addr.city,
+                addr.state,
+                addr.postal_code
+            FROM (
+                SELECT
+                    json_value(DATA, '$.phoneKey.customerNumber') as customer_number,
+                    json_value(DATA, '$.phoneKey.phoneNumber') as phone
+                FROM "%s"
+                WHERE json_value(DATA, '$.phoneKey.phoneNumber') IS NOT NULL
+                  AND json_value(DATA, '$.phoneKey.customerNumber') IS NOT NULL
+            ) p
+            JOIN (
+                SELECT
+                    json_value(DATA, '$._id.customerNumber') as customer_number,
+                    json_value(DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4,
+                    json_value(DATA, '$.emails[0].emailAddress') as email
+                FROM "%s"
+                WHERE json_value(DATA, '$.common.taxIdentificationNumberLast4') IS NOT NULL
+                  AND json_value(DATA, '$._id.customerNumber') IS NOT NULL
+            ) i ON p.customer_number = i.customer_number
+            JOIN (
+                SELECT
+                    json_value(DATA, '$.accountHolders[0].customerNumber') as customer_number,
+                    json_value(DATA, '$.accountKey.accountNumberLast4') as account_last4,
+                    json_value(DATA, '$.accountKey.accountNumber') as account_number
+                FROM "%s"
+                WHERE json_value(DATA, '$.accountKey.accountNumberLast4') IS NOT NULL
+                  AND json_value(DATA, '$.accountKey.accountNumber') IS NOT NULL
+                  AND json_value(DATA, '$.accountHolders[0].customerNumber') IS NOT NULL
+            ) a ON p.customer_number = a.customer_number
+            JOIN (
+                SELECT
+                    json_value(DATA, '$._id.customerNumber') as customer_number,
+                    json_value(DATA, '$.addresses[0].cityName') as city,
+                    json_value(DATA, '$.addresses[0].stateCode') as state,
+                    json_value(DATA, '$.addresses[0].postalCode') as postal_code
+                FROM "%s"
+                WHERE json_value(DATA, '$.addresses[0].cityName') IS NOT NULL
+                  AND json_value(DATA, '$.addresses[0].stateCode') IS NOT NULL
+                  AND json_value(DATA, '$.addresses[0].postalCode') IS NOT NULL
+                  AND json_value(DATA, '$._id.customerNumber') IS NOT NULL
+            ) addr ON p.customer_number = addr.customer_number
             FETCH FIRST ? ROWS ONLY
-            """.formatted(identityTable, phoneTable, accountTable, addressTable);
+            """.formatted(phoneTable, identityTable, accountTable, addressTable);
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        log.debug("Executing correlated UC params query (4-way join with address)");
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setQueryTimeout(120); // 2 minute timeout
             stmt.setInt(1, count);
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -228,22 +309,104 @@ public class SampleDataLoader {
                     String accountNumber = rs.getString("account_number");
                     String city = rs.getString("city");
                     String state = rs.getString("state");
-                    String zip = rs.getString("zip");
+                    String zip = rs.getString("postal_code");
 
-                    if (phone != null && ssnLast4 != null && accountLast4 != null &&
-                        email != null && accountNumber != null &&
-                        city != null && state != null && zip != null) {
-                        cachedUcParams.add(new String[]{phone, ssnLast4, accountLast4, email, accountNumber, city, state, zip});
-                    }
+                    // Use fallback values for optional fields
+                    if (email == null) email = "test@example.com";
+
+                    // Create parameter array: [phone, ssnLast4, accountLast4, email, accountNumber, city, state, zip]
+                    params.add(new String[]{
+                            phone,
+                            ssnLast4,
+                            accountLast4,
+                            email,
+                            accountNumber,
+                            city,
+                            state,
+                            zip
+                    });
+
+                    log.debug("Loaded correlated params for customer: phone={}, ssn4={}, acct4={}, city={}, state={}, zip={}",
+                            phone, ssnLast4, accountLast4, city, state, zip);
                 }
             }
-            log.debug("Loaded {} sample UC parameter sets from database", cachedUcParams.size());
         } catch (SQLException e) {
-            log.warn("Failed to load sample UC parameters from database: {}. Using fallback.", e.getMessage());
-            cachedUcParams = new ArrayList<>(FALLBACK_UC_PARAMS);
+            if (e.getMessage() != null && e.getMessage().contains("timeout")) {
+                log.warn("Query timed out, will use fallback data");
+            } else {
+                throw e;
+            }
         }
 
-        return cachedUcParams;
+        return params;
+    }
+
+    /**
+     * Fallback: Load UC parameters from identity collection only.
+     * Uses identity data (SSN, email) and generates synthetic phone/account values.
+     * This is used when the 3-way JOIN returns no results.
+     */
+    private List<String[]> loadIdentityOnlyParams(Connection conn, String identityTable, int count) throws SQLException {
+        List<String[]> params = new ArrayList<>();
+
+        String sql = """
+            SELECT
+                json_value(DATA, '$._id.customerNumber') as customer_number,
+                json_value(DATA, '$.common.taxIdentificationNumberLast4') as ssn_last4,
+                json_value(DATA, '$.emails[0].emailAddress') as email
+            FROM "%s"
+            WHERE json_value(DATA, '$.common.taxIdentificationNumberLast4') IS NOT NULL
+              AND json_value(DATA, '$._id.customerNumber') IS NOT NULL
+            FETCH FIRST ? ROWS ONLY
+            """.formatted(identityTable);
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, count);
+            try (ResultSet rs = stmt.executeQuery()) {
+                int seq = 0;
+                while (rs.next()) {
+                    String customerNumber = rs.getString("customer_number");
+                    String ssnLast4 = rs.getString("ssn_last4");
+                    String email = rs.getString("email");
+
+                    if (email == null) email = "test@example.com";
+
+                    // Generate synthetic but consistent phone and account values based on customerNumber
+                    String phone = "555" + String.format("%07d", (Long.parseLong(customerNumber) % 10000000));
+                    String accountLast4 = String.format("%04d", seq % 10000);
+                    String accountNumber = "1000" + String.format("%08d", seq);
+
+                    params.add(new String[]{
+                            phone,
+                            ssnLast4,
+                            accountLast4,
+                            email,
+                            accountNumber,
+                            "New York",   // city fallback
+                            "NY",         // state fallback
+                            "10001"       // zip fallback
+                    });
+                    seq++;
+                }
+            }
+        }
+
+        return params;
+    }
+
+    /**
+     * Derive related table name from identity collection name.
+     * Handles two cases:
+     * 1. Collection has prefix (e.g., "bench_identity") -> derive "bench_phone"
+     * 2. Collection is just "identity" -> derive "phone"
+     */
+    private String deriveTableName(String suffix) {
+        if (collection.endsWith("identity")) {
+            // Replace "identity" suffix with the desired suffix
+            return collection.substring(0, collection.length() - 8) + suffix;
+        }
+        // Collection doesn't end with "identity", just return the suffix
+        return suffix;
     }
 
     /**

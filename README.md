@@ -441,17 +441,21 @@ See `config/hybrid-search-config.yaml` for configuration and `results/BENCHMARK_
 | uc2_phone_ssn_account | Phone + SSN + Account (3-way) | 6.91ms | 7.73ms | 144.6/sec |
 | uc1_phone_ssn_last4 | Phone + SSN last 4 (2-way) | 7.87ms | 8.85ms | 127.0/sec |
 
-### Multi-Collection Join Queries (UC-1 through UC-7)
+### Multi-Collection Join Queries (UC-1 through UC-7) - SCORE() Approach
 
-| Query | Description | Join Chain | Avg | Throughput |
-|-------|-------------|------------|-----|------------|
-| UC-1 | Phone + SSN Last 4 | phone → identity | 7.87ms | 127.0/sec |
-| UC-2 | Phone + SSN + Account | phone → identity → account | 6.91ms | 144.6/sec |
-| UC-3 | Phone + Account | phone → identity → account | 453.66ms | 2.2/sec |
-| UC-4 | Account + SSN | account → identity | 2.33ms | 428.5/sec |
-| UC-5 | Address + SSN + Account | address → identity → account | 246.80ms | 4.1/sec |
-| UC-6 | Email + Account Last 4 | identity → account | 12.21ms | 81.9/sec |
-| UC-7 | Email + Phone + Account | identity → phone → account | 5.75ms | 174.0/sec |
+Using Oracle Text SCORE() with full JSON search indexes:
+
+| Query | Description | Join Chain | Avg | P50 | P95 | Throughput | Docs |
+|-------|-------------|------------|-----|-----|-----|------------|------|
+| UC-1 | Phone + SSN Last 4 | phone → identity | 7.27ms | 7.12ms | 9.14ms | 137.5/s | 1.0 |
+| UC-2 | Phone + SSN + Account | phone → identity → account | 8.20ms | 7.98ms | 9.30ms | 122.0/s | 1.0 |
+| UC-3 | Phone + Account Last 4 | phone → identity → account | 6.01ms | 6.00ms | 6.16ms | 166.4/s | 1.0 |
+| UC-4 | Account + SSN | account → identity | 5.93ms | 5.81ms | 6.47ms | 168.6/s | 1.0 |
+| UC-5 | City/State/ZIP + SSN + Account | address → identity → account | 11.74ms | 10.70ms | 13.95ms | 85.2/s | 1.0 |
+| UC-6 | Email + Account Last 4 | identity → account | 8.78ms | 6.62ms | 26.18ms | 113.9/s | 1.0 |
+| UC-7 | Email + Phone + Account | identity → phone → account | 11.18ms | 7.68ms | 39.97ms | 89.4/s | 1.0 |
+
+**Note:** See [UC_UNIFIED_SUMMARY.md](UC_UNIFIED_SUMMARY.md) for detailed query patterns and SQL examples.
 
 ### Address Queries (Higher Latency)
 
