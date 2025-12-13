@@ -605,10 +605,15 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldUseJsonValueForArrayIndexAccess() {
+        void shouldUseFlatAddressPathsNotArrayIndex() {
             String sql = service.buildUC1Query("4155551234", "6789", 10);
-            // Should access first address with JSON_VALUE and array index
-            assertThat(sql).contains("$.addresses[0]");
+            // Should access address fields at top level (not in array)
+            assertThat(sql).contains("$.addressLine1");
+            assertThat(sql).contains("$.cityName");
+            assertThat(sql).contains("$.stateCode");
+            assertThat(sql).contains("$.postalCode");
+            // Should NOT use array index (addresses is now flat structure)
+            assertThat(sql).doesNotContain("addresses[0]");
         }
     }
 

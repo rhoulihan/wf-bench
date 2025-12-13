@@ -25,10 +25,10 @@ This document provides a comprehensive summary of the UC 1-7 unified search impl
 ### Collections
 | Collection | Description | Key Fields |
 |------------|-------------|------------|
-| `identity` | Customer identity records | customerNumber, fullName, taxIdentificationNumberLast4, emails |
+| `identity` | Customer identity records | customerNumber, fullName, taxIdentificationNumberLast4, primaryEmail |
 | `phone` | Phone number records | phoneKey.customerNumber, phoneKey.phoneNumber |
 | `account` | Account records | accountHolders[0].customerNumber, accountKey.accountNumber, accountKey.accountNumberLast4 |
-| `address` | Address records | _id.customerNumber, addresses[0].cityName, addresses[0].stateCode, addresses[0].postalCode |
+| `address` | Address records (one doc per address) | _id.customerNumber, _id.addressKey, cityName, stateCode, postalCode |
 
 ### Indexes
 Full JSON search indexes created for Oracle Text CONTAINS() operations:
@@ -151,28 +151,46 @@ FETCH FIRST ? ROWS ONLY
 
 ### UC-5: City/State/ZIP + SSN Last 4 + Account Last 4
 **Description:** Search for customers by geographic location, SSN last 4, and account last 4
-**Collections:** address, identity, account
+**Collections:** address (flat structure), identity, account
 **Input Parameters:**
-- City (full-text search)
+- City (full-text search via json_textcontains)
 - State Code (exact match)
 - ZIP/Postal Code (exact match)
 - SSN Last 4 (exact match)
 - Account Last 4 (exact match)
 
-**Query Pattern:**
+**Note:** Address documents use flat structure with one document per address. Fields like `cityName`, `stateCode`, `postalCode` are at top level, not in an array.
+
+**Query Pattern (MongoDB $sql):**
 ```sql
-SELECT SCORE(1) as ranking_score, ...
-FROM address addr
-JOIN identity i ON json_value(addr.DATA, '$._id.customerNumber') =
-                   json_value(i.DATA, '$._id.customerNumber')
-JOIN account a ON json_value(i.DATA, '$._id.customerNumber') =
-                  json_value(a.DATA, '$.accountHolders[0].customerNumber')
-WHERE CONTAINS(addr.DATA, ?, 1) > 0
-  AND json_value(addr.DATA, '$.addresses[0].stateCode') = ?
-  AND json_value(addr.DATA, '$.addresses[0].postalCode') = ?
-  AND json_value(i.DATA, '$.common.taxIdentificationNumberLast4') = ?
-  AND json_value(a.DATA, '$.accountKey.accountNumberLast4') = ?
-ORDER BY SCORE(1) DESC
+WITH
+addresses AS (
+  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
+  FROM "address"
+  WHERE json_textcontains("DATA", '$."cityName"', ?, 1)
+    AND JSON_VALUE("DATA", '$.stateCode') = ?
+    AND JSON_VALUE("DATA", '$.postalCode') = ?
+  ORDER BY score(1) DESC
+),
+identities AS (
+  SELECT "DATA"
+  FROM "identity"
+  WHERE JSON_VALUE("DATA", '$.common.taxIdentificationNumberLast4') = ?
+),
+accounts AS (
+  SELECT "DATA"
+  FROM "account"
+  WHERE JSON_VALUE("DATA", '$.accountKey.accountNumberLast4') = ?
+),
+joined AS (
+  SELECT a."DATA" address_data, i."DATA" identity_data, ac."DATA" account_data, a.addr_score ranking_score
+  FROM addresses a
+  JOIN identities i ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+)
+SELECT json {...}
+FROM joined j
+ORDER BY j.ranking_score DESC
 FETCH FIRST ? ROWS ONLY
 ```
 
@@ -381,7 +399,8 @@ Avg Results:     1.0 docs
 | `$.individual.firstName` | First name (individuals) |
 | `$.individual.dateOfBirth` | Date of birth (individuals) |
 | `$.nonIndividual.businessDescriptionText` | Business description (non-individuals) |
-| `$.emails[0].emailAddress` | Primary email address |
+| `$.primaryEmail` | Primary email address (scalar field for text search) |
+| `$.emails[0].emailAddress` | Email address (legacy array format) |
 
 ### Phone Collection
 | Path | Description |
@@ -396,15 +415,18 @@ Avg Results:     1.0 docs
 | `$.accountKey.accountNumber` | Full account number |
 | `$.accountKey.accountNumberLast4` | Last 4 digits of account |
 
-### Address Collection
+### Address Collection (Flat Structure)
 | Path | Description |
 |------|-------------|
 | `$._id.customerNumber` | Customer number (foreign key) |
-| `$.addresses[0].addressLine1` | Street address |
-| `$.addresses[0].cityName` | City |
-| `$.addresses[0].stateCode` | State code |
-| `$.addresses[0].postalCode` | ZIP code |
-| `$.addresses[0].countryCode` | Country code |
+| `$._id.customerCompanyNumber` | Company number |
+| `$._id.addressKey` | Unique address key |
+| `$.addressLine1` | Street address |
+| `$.cityName` | City |
+| `$.stateCode` | State code |
+| `$.postalCode` | ZIP code |
+| `$.countryCode` | Country code |
+| `$.addressUseCode` | Address purpose (CUSTOMER_RESIDENCE, BILLING_ADDRESS, etc.) |
 
 ---
 
@@ -444,31 +466,45 @@ In addition to JDBC-based queries, UC 1-7 searches can be executed using the Mon
 - CTE (WITH clause) pattern for multi-collection joins
 - `/*+ DOMAIN_INDEX_SORT */` hint for optimized score sorting
 
-### MongoDB $sql Benchmark Results
+### MongoDB $sql Benchmark Results (December 13, 2025)
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN Last 4 | **21.20 ms** | 27.42 ms | 47.2/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **37.74 ms** | 47.94 ms | 26.5/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **30.42 ms** | 56.19 ms | 32.9/s | 20/20 |
-| UC-4 | Account + SSN | **19.96 ms** | 27.01 ms | 50.1/s | 12/20* |
-| UC-5 | City/State/ZIP + SSN + Account | - | - | - | 0/20** |
-| UC-6 | Email + Account Last 4 | **21.66 ms** | 27.90 ms | 46.2/s | 20/20 |
-| UC-7 | Email + Phone + Account | **36.55 ms** | 44.90 ms | 27.4/s | 20/20 |
+| UC-1 | Phone + SSN Last 4 | **19.64 ms** | 23.92 ms | 50.9/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **28.52 ms** | 35.84 ms | 35.1/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **22.03 ms** | 26.69 ms | 45.4/s | 20/20 |
+| UC-4 | Account + SSN | **19.66 ms** | 26.03 ms | 50.9/s | 12/20* |
+| UC-5 | City/State/ZIP + SSN + Account | **34.97 ms** | 43.33 ms | 28.6/s | 20/20 |
+| UC-6 | Email + Account Last 4 | **20.58 ms** | 24.72 ms | 48.6/s | 20/20 |
+| UC-7 | Email + Phone + Account | **25.98 ms** | 32.42 ms | 38.5/s | 20/20 |
 
 **Notes:**
-- *UC-4: 8 failures due to Oracle Text parser errors on certain account number patterns
-- **UC-5: `json_textcontains()` does not support array index paths (e.g., `$."addresses"[0]."cityName"`)
-- UC-6/UC-7 now work after adding `primaryEmail` scalar field (see migration script)
+- *UC-4: 8 failures due to Oracle Text parser errors on certain account number patterns (DRG-50901)
+- UC-5 now works after migrating to flat address structure (one document per address)
+- UC-6/UC-7 work after adding `primaryEmail` scalar field to identity documents
 
-### Data Migration for Email
+### Data Migrations
+
+**Email Migration (for UC-6/UC-7):**
 To enable UC-6 and UC-7, run the email migration script to add a scalar `primaryEmail` field:
 ```bash
 mongosh "$CONN" --file scripts/migrate-email-scalar.js
 ```
 
+**Address Migration (for UC-5):**
+To enable UC-5, run the address migration script to convert from array to flat structure:
+```bash
+mongosh "$CONN" --file scripts/migrate-address-flat.js
+```
+
+This script:
+1. Reads old-style documents with `addresses` array
+2. Creates one new document per address with flat fields at top level
+3. Includes `addressKey` in `_id` for uniqueness
+4. Deletes old array-style documents after migration
+
 ### Known Issues
-1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469: JSON path expression in JSON_TEXTCONTAINS() is invalid`
+1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469: JSON path expression in JSON_TEXTCONTAINS() is invalid`. **Solution:** Use flat document structure with fields at top level.
 2. **Account Number Parser:** Some account number patterns cause Oracle Text parser errors (`DRG-50901`)
 
 ### Comparison: JDBC vs MongoDB $sql
