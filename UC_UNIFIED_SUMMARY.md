@@ -18,8 +18,8 @@ This document provides a comprehensive summary of the UC 1-7 unified search impl
 - **Connection Pool Size:** 10
 
 ### Benchmark Parameters
-- **Iterations:** 10
-- **Warmup Iterations:** 3
+- **Iterations:** 20
+- **Warmup Iterations:** 5
 - **Result Limit:** 10 documents per query
 
 ### Collections
@@ -262,104 +262,104 @@ Each UC query returns results in the following format:
 
 | UC | Description | Avg Latency | P50 | P95 | P99 | Throughput | Avg Results |
 |----|-------------|-------------|-----|-----|-----|------------|-------------|
-| UC-1 | Phone + SSN Last 4 | **7.27 ms** | 7.12 ms | 9.14 ms | 9.14 ms | 137.5/s | 1.0 docs |
-| UC-2 | Phone + SSN + Account | **8.20 ms** | 7.98 ms | 9.30 ms | 9.30 ms | 122.0/s | 1.0 docs |
-| UC-3 | Phone + Account Last 4 | **6.01 ms** | 6.00 ms | 6.16 ms | 6.16 ms | 166.4/s | 1.0 docs |
-| UC-4 | Account + SSN | **5.93 ms** | 5.81 ms | 6.47 ms | 6.47 ms | 168.6/s | 1.0 docs |
-| UC-5 | City/State/ZIP + SSN + Account | **11.74 ms** | 10.70 ms | 13.95 ms | 13.95 ms | 85.2/s | 1.0 docs |
-| UC-6 | Email + Account Last 4 | **8.78 ms** | 6.62 ms | 26.18 ms | 26.18 ms | 113.9/s | 1.0 docs |
-| UC-7 | Email + Phone + Account | **11.18 ms** | 7.68 ms | 39.97 ms | 39.97 ms | 89.4/s | 1.0 docs |
+| UC-1 | Phone + SSN Last 4 | **6.86 ms** | 6.31 ms | 8.39 ms | 8.79 ms | 145.7/s | 1.0 docs |
+| UC-2 | Phone + SSN + Account | **7.87 ms** | 7.43 ms | 9.83 ms | 11.00 ms | 127.0/s | 1.0 docs |
+| UC-3 | Phone + Account Last 4 | **5.51 ms** | 5.48 ms | 5.77 ms | 6.58 ms | 181.6/s | 1.0 docs |
+| UC-4 | Account + SSN | **5.43 ms** | 5.23 ms | 6.68 ms | 7.51 ms | 184.0/s | 1.0 docs |
+| UC-5 | City/State/ZIP + SSN + Account | **9.88 ms** | 9.38 ms | 11.68 ms | 12.28 ms | 101.2/s | 1.0 docs |
+| UC-6 | Email + Account Last 4 | **5.21 ms** | 5.18 ms | 5.52 ms | 5.86 ms | 191.8/s | 1.0 docs |
+| UC-7 | Email + Phone + Account | **6.58 ms** | 6.52 ms | 7.40 ms | 7.58 ms | 152.1/s | 1.0 docs |
 
 ### Detailed Results
 
 #### UC-1: Phone + SSN Last 4
 ```
-Iterations:      10 (+ 3 warmup)
-Avg Latency:     7.27 ms
-Min Latency:     6.32 ms
-Max Latency:     9.14 ms
-P50 Latency:     7.12 ms
-P95 Latency:     9.14 ms
-P99 Latency:     9.14 ms
-Throughput:      137.5 ops/sec
+Iterations:      20 (+ 5 warmup)
+Avg Latency:     6.86 ms
+Min Latency:     5.81 ms
+Max Latency:     8.79 ms
+P50 Latency:     6.31 ms
+P95 Latency:     8.39 ms
+P99 Latency:     8.79 ms
+Throughput:      145.7 ops/sec
 Avg Results:     1.0 docs
 ```
 
 #### UC-2: Phone + SSN + Account
 ```
-Iterations:      10 (+ 3 warmup)
-Avg Latency:     8.20 ms
-Min Latency:     7.73 ms
-Max Latency:     9.30 ms
-P50 Latency:     7.98 ms
-P95 Latency:     9.30 ms
-P99 Latency:     9.30 ms
-Throughput:      122.0 ops/sec
+Iterations:      20 (+ 5 warmup)
+Avg Latency:     7.87 ms
+Min Latency:     6.94 ms
+Max Latency:     11.00 ms
+P50 Latency:     7.43 ms
+P95 Latency:     9.83 ms
+P99 Latency:     11.00 ms
+Throughput:      127.0 ops/sec
 Avg Results:     1.0 docs
 ```
 
 #### UC-3: Phone + Account Last 4
 ```
-Iterations:      10 (+ 3 warmup)
-Avg Latency:     6.01 ms
-Min Latency:     5.76 ms
-Max Latency:     6.16 ms
-P50 Latency:     6.00 ms
-P95 Latency:     6.16 ms
-P99 Latency:     6.16 ms
-Throughput:      166.4 ops/sec
+Iterations:      20 (+ 5 warmup)
+Avg Latency:     5.51 ms
+Min Latency:     5.16 ms
+Max Latency:     6.58 ms
+P50 Latency:     5.48 ms
+P95 Latency:     5.77 ms
+P99 Latency:     6.58 ms
+Throughput:      181.6 ops/sec
 Avg Results:     1.0 docs
 ```
 
 #### UC-4: Account + SSN
 ```
-Iterations:      10 (+ 3 warmup)
-Avg Latency:     5.93 ms
-Min Latency:     5.63 ms
-Max Latency:     6.47 ms
-P50 Latency:     5.81 ms
-P95 Latency:     6.47 ms
-P99 Latency:     6.47 ms
-Throughput:      168.6 ops/sec
+Iterations:      20 (+ 5 warmup)
+Avg Latency:     5.43 ms
+Min Latency:     4.91 ms
+Max Latency:     7.51 ms
+P50 Latency:     5.23 ms
+P95 Latency:     6.68 ms
+P99 Latency:     7.51 ms
+Throughput:      184.0 ops/sec
 Avg Results:     1.0 docs
 ```
 
 #### UC-5: City/State/ZIP + SSN + Account
 ```
-Iterations:      10 (+ 3 warmup)
-Avg Latency:     11.74 ms
-Min Latency:     10.29 ms
-Max Latency:     13.95 ms
-P50 Latency:     10.70 ms
-P95 Latency:     13.95 ms
-P99 Latency:     13.95 ms
-Throughput:      85.2 ops/sec
+Iterations:      20 (+ 5 warmup)
+Avg Latency:     9.88 ms
+Min Latency:     8.81 ms
+Max Latency:     12.28 ms
+P50 Latency:     9.38 ms
+P95 Latency:     11.68 ms
+P99 Latency:     12.28 ms
+Throughput:      101.2 ops/sec
 Avg Results:     1.0 docs
 ```
 
 #### UC-6: Email + Account Last 4
 ```
-Iterations:      10 (+ 3 warmup)
-Avg Latency:     8.78 ms
-Min Latency:     5.75 ms
-Max Latency:     26.18 ms
-P50 Latency:     6.62 ms
-P95 Latency:     26.18 ms
-P99 Latency:     26.18 ms
-Throughput:      113.9 ops/sec
+Iterations:      20 (+ 5 warmup)
+Avg Latency:     5.21 ms
+Min Latency:     4.84 ms
+Max Latency:     5.86 ms
+P50 Latency:     5.18 ms
+P95 Latency:     5.52 ms
+P99 Latency:     5.86 ms
+Throughput:      191.8 ops/sec
 Avg Results:     1.0 docs
 ```
 
 #### UC-7: Email + Phone + Account
 ```
-Iterations:      10 (+ 3 warmup)
-Avg Latency:     11.18 ms
-Min Latency:     7.16 ms
-Max Latency:     39.97 ms
-P50 Latency:     7.68 ms
-P95 Latency:     39.97 ms
-P99 Latency:     39.97 ms
-Throughput:      89.4 ops/sec
+Iterations:      20 (+ 5 warmup)
+Avg Latency:     6.58 ms
+Min Latency:     5.04 ms
+Max Latency:     7.58 ms
+P50 Latency:     6.52 ms
+P95 Latency:     7.40 ms
+P99 Latency:     7.58 ms
+Throughput:      152.1 ops/sec
 Avg Results:     1.0 docs
 ```
 
@@ -448,5 +448,5 @@ java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
 1. **Relevance Scoring:** Oracle Text SCORE() function provides relevance ranking (0-100) for full-text search matches
 2. **JOIN Strategy:** All queries use customerNumber as the join key across collections
 3. **Address LEFT JOIN:** Address is always LEFT JOINed to handle customers without address records
-4. **Performance:** Average latency ranges from 5.93ms (UC-4) to 11.74ms (UC-5), well within acceptable limits
+4. **Performance:** Average latency ranges from 5.21ms (UC-6) to 9.88ms (UC-5), well within acceptable limits
 5. **Data Correlation:** SampleDataLoader ensures test parameters are correlated across all 4 collections for realistic testing

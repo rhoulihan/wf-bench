@@ -447,13 +447,13 @@ Using Oracle Text SCORE() with full JSON search indexes:
 
 | Query | Description | Join Chain | Avg | P50 | P95 | Throughput | Docs |
 |-------|-------------|------------|-----|-----|-----|------------|------|
-| UC-1 | Phone + SSN Last 4 | phone → identity | 7.27ms | 7.12ms | 9.14ms | 137.5/s | 1.0 |
-| UC-2 | Phone + SSN + Account | phone → identity → account | 8.20ms | 7.98ms | 9.30ms | 122.0/s | 1.0 |
-| UC-3 | Phone + Account Last 4 | phone → identity → account | 6.01ms | 6.00ms | 6.16ms | 166.4/s | 1.0 |
-| UC-4 | Account + SSN | account → identity | 5.93ms | 5.81ms | 6.47ms | 168.6/s | 1.0 |
-| UC-5 | City/State/ZIP + SSN + Account | address → identity → account | 11.74ms | 10.70ms | 13.95ms | 85.2/s | 1.0 |
-| UC-6 | Email + Account Last 4 | identity → account | 8.78ms | 6.62ms | 26.18ms | 113.9/s | 1.0 |
-| UC-7 | Email + Phone + Account | identity → phone → account | 11.18ms | 7.68ms | 39.97ms | 89.4/s | 1.0 |
+| UC-1 | Phone + SSN Last 4 | phone → identity | 6.86ms | 6.31ms | 8.39ms | 145.7/s | 1.0 |
+| UC-2 | Phone + SSN + Account | phone → identity → account | 7.87ms | 7.43ms | 9.83ms | 127.0/s | 1.0 |
+| UC-3 | Phone + Account Last 4 | phone → identity → account | 5.51ms | 5.48ms | 5.77ms | 181.6/s | 1.0 |
+| UC-4 | Account + SSN | account → identity | 5.43ms | 5.23ms | 6.68ms | 184.0/s | 1.0 |
+| UC-5 | City/State/ZIP + SSN + Account | address → identity → account | 9.88ms | 9.38ms | 11.68ms | 101.2/s | 1.0 |
+| UC-6 | Email + Account Last 4 | identity → account | 5.21ms | 5.18ms | 5.52ms | 191.8/s | 1.0 |
+| UC-7 | Email + Phone + Account | identity → phone → account | 6.58ms | 6.52ms | 7.40ms | 152.1/s | 1.0 |
 
 **Note:** See [UC_UNIFIED_SUMMARY.md](UC_UNIFIED_SUMMARY.md) for detailed query patterns and SQL examples.
 
