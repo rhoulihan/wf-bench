@@ -442,10 +442,12 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
 
     private List<String[]> generateUC4Params() {
         // Account Number + SSN Last 4
+        // Note: Must use Math.abs() to avoid negative numbers which cause Oracle Text
+        // parser errors (DRG-50901) because '-' is interpreted as NOT operator
         List<String[]> params = new ArrayList<>();
         Random r = new Random(4);
         for (int i = 0; i < 100; i++) {
-            String acct = String.format("%010d", r.nextLong() % 10000000000L);
+            String acct = String.format("%010d", Math.abs(r.nextLong() % 10000000000L));
             String ssn4 = String.format("%04d", r.nextInt(10000));
             params.add(new String[]{acct, ssn4});
         }
@@ -485,13 +487,15 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
 
     private List<String[]> generateUC7Params() {
         // Email + Phone + Account Number
+        // Note: Must use Math.abs() to avoid negative numbers which cause Oracle Text
+        // parser errors (DRG-50901) because '-' is interpreted as NOT operator
         String[] domains = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "example.com"};
         List<String[]> params = new ArrayList<>();
         Random r = new Random(7);
         for (int i = 0; i < 100; i++) {
             String email = String.format("user%d@%s", r.nextInt(10000), domains[r.nextInt(domains.length)]);
             String phone = String.format("%d%07d", 415 + r.nextInt(10), r.nextInt(10000000));
-            String acct = String.format("%010d", r.nextLong() % 10000000000L);
+            String acct = String.format("%010d", Math.abs(r.nextLong() % 10000000000L));
             params.add(new String[]{email, phone, acct});
         }
         return params;
