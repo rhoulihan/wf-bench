@@ -432,14 +432,95 @@ java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
 
 ---
 
+## MongoDB $sql Operator Benchmark (December 13, 2025)
+
+### Overview
+In addition to JDBC-based queries, UC 1-7 searches can be executed using the MongoDB API's `$sql` aggregation operator with `json_textcontains()` function. This approach allows SQL queries to be executed through the MongoDB wire protocol.
+
+### Implementation Details
+- Uses `db.aggregate([{"$sql": "SELECT ..."}])` pattern
+- Text search via `json_textcontains("DATA", '$.path', 'term', label)`
+- Scalar value extraction via `JSON_VALUE("DATA", '$.path')`
+- CTE (WITH clause) pattern for multi-collection joins
+- `/*+ DOMAIN_INDEX_SORT */` hint for optimized score sorting
+
+### MongoDB $sql Benchmark Results
+
+| UC | Description | Avg Latency | P95 | Throughput | Status |
+|----|-------------|-------------|-----|------------|--------|
+| UC-1 | Phone + SSN Last 4 | **21.91 ms** | 28.26 ms | 45.6/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **35.05 ms** | 43.33 ms | 28.5/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **39.38 ms** | 47.49 ms | 25.4/s | 20/20 |
+| UC-4 | Account + SSN | **21.54 ms** | 39.10 ms | 46.4/s | 12/20* |
+| UC-5 | City/State/ZIP + SSN + Account | - | - | - | 0/20** |
+| UC-6 | Email + Account Last 4 | - | - | - | 0/20** |
+| UC-7 | Email + Phone + Account | - | - | - | 0/20** |
+
+**Notes:**
+- *UC-4: 8 failures due to Oracle Text parser errors on certain account number patterns
+- **UC-5, UC-6, UC-7: `json_textcontains()` does not support array index paths (e.g., `$."emails"[0]."emailAddress"`)
+
+### Known Issues
+1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469: JSON path expression in JSON_TEXTCONTAINS() is invalid`
+2. **Account Number Parser:** Some account number patterns cause Oracle Text parser errors (`DRG-50901`)
+
+### Comparison: JDBC vs MongoDB $sql
+
+| Metric | JDBC/SQL | MongoDB $sql |
+|--------|----------|--------------|
+| UC-1 Latency | 6.86 ms | 21.91 ms |
+| UC-2 Latency | 7.87 ms | 35.05 ms |
+| UC-3 Latency | 5.51 ms | 39.38 ms |
+| Protocol | Direct JDBC | MongoDB Wire Protocol |
+| Text Search | CONTAINS() | json_textcontains() |
+
+The JDBC approach is approximately 3-4x faster due to direct database connectivity, but MongoDB $sql provides an alternative for applications using the MongoDB driver.
+
+---
+
 ## Implementation Files
 
 | File | Description |
 |------|-------------|
-| `UcSearchService.java` | Main service class implementing UC 1-7 queries |
+| `MongoSqlSearchService.java` | UC 1-7 using MongoDB $sql operator with json_textcontains() |
+| `MongoSqlSearchCommand.java` | CLI command for MongoDB $sql UC benchmarks |
 | `UcSearchResult.java` | Result model matching PDF response format |
 | `SampleDataLoader.java` | Loads correlated test data via 4-way JOIN |
-| `HybridSearchCommand.java` | CLI command with `--uc-search-benchmark` option |
+| `HybridSearchCommand.java` | CLI command for fuzzy, phonetic, vector search |
+
+---
+
+## CLI Usage
+
+### MongoDB $sql UC Benchmark
+```bash
+java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar mongo-sql \
+  --connection-string "mongodb://admin:PASSWORD@host:27017/[user]?..." \
+  --database admin \
+  --uc-benchmark \
+  --iterations 20 \
+  --warmup 5
+```
+
+### JDBC UC Search Benchmark (Legacy)
+```bash
+java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  --jdbc-url 'jdbc:oracle:thin:@wellsfargo_low?TNS_ADMIN=/path/to/wallet' \
+  -u ADMIN \
+  -p <password> \
+  --uc-search-benchmark \
+  -i 10 \
+  -w 3
+```
+
+### Create Search Indexes
+```bash
+java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
+  --jdbc-url 'jdbc:oracle:thin:@wellsfargo_low?TNS_ADMIN=/path/to/wallet' \
+  -u ADMIN \
+  -p <password> \
+  --create-uc-search-indexes
+```
 
 ---
 
@@ -448,5 +529,6 @@ java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
 1. **Relevance Scoring:** Oracle Text SCORE() function provides relevance ranking (0-100) for full-text search matches
 2. **JOIN Strategy:** All queries use customerNumber as the join key across collections
 3. **Address LEFT JOIN:** Address is always LEFT JOINed to handle customers without address records
-4. **Performance:** Average latency ranges from 5.21ms (UC-6) to 9.88ms (UC-5), well within acceptable limits
-5. **Data Correlation:** SampleDataLoader ensures test parameters are correlated across all 4 collections for realistic testing
+4. **JDBC Performance:** Average latency ranges from 5.21ms (UC-6) to 9.88ms (UC-5), well within acceptable limits
+5. **MongoDB $sql Performance:** UC-1 through UC-3 work reliably with 20-40ms latency
+6. **Data Correlation:** SampleDataLoader ensures test parameters are correlated across all 4 collections for realistic testing

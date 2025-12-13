@@ -277,7 +277,7 @@ class MongoSqlSearchServiceTest {
 
             // Then - email should be text search on identity
             assertThat(sql).contains("json_textcontains");
-            assertThat(sql).contains("emailAddress");
+            assertThat(sql).contains("primaryEmail");
         }
 
         @Test
@@ -311,7 +311,7 @@ class MongoSqlSearchServiceTest {
 
             // Then - should have all three search criteria
             assertThat(sql).contains("json_textcontains");
-            assertThat(sql).contains("emailAddress");
+            assertThat(sql).contains("primaryEmail");
             assertThat(sql).contains("phoneNumber");
             assertThat(sql).contains("accountNumber");
         }

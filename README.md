@@ -355,24 +355,33 @@ The MongoDB API for Oracle supports only B-tree indexes. For advanced search fea
 | **Vector** | Semantic similarity search | Requires ONNX model + embedding column |
 | **UC SQL JOIN** | Multi-collection JOIN queries via native SQL | Works immediately with JDBC |
 
-### UC SQL JOIN Queries
+### MongoDB $sql UC Queries
 
-The `hybrid-search` command includes SQL JOIN implementations for UC (Use Case) queries that span multiple collections. This approach uses Oracle's native SQL JOIN with `json_value()` functions instead of sequential MongoDB find() operations.
+The `mongo-sql` command implements UC 1-7 queries using the MongoDB API's `$sql` aggregation operator with `json_textcontains()` for text search. This allows SQL queries to be executed through the MongoDB wire protocol.
 
 ```bash
-# Run UC SQL JOIN benchmark
-java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
-  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
-  --collection-prefix "bench_" \
-  --uc-benchmark -i 100 -w 10
+# Run MongoDB $sql UC benchmark
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar mongo-sql \
+  --connection-string "$MONGO_CONN" \
+  --database admin \
+  --uc-benchmark \
+  --iterations 20 \
+  --warmup 5
 
 # Run individual UC queries
-java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar hybrid-search \
-  -j "$JDBC_URL" -u ADMIN -p "$PASSWORD" \
-  --uc1-phone "5551234567" --uc1-ssn-last4 "6789"
+java --enable-preview -jar wf-bench-1.0.0-SNAPSHOT.jar mongo-sql \
+  --connection-string "$MONGO_CONN" \
+  --database admin \
+  --uc1 --uc1-phone "5551234567" --uc1-ssn-last4 "6789"
 ```
 
-Supported UC queries: UC-1, UC-2, UC-4, UC-6 (see `results/BENCHMARK_SUMMARY.md` for SQL definitions).
+The implementation uses:
+- CTE (WITH clause) pattern for multi-collection JOINs
+- `json_textcontains("DATA", '$.path', 'term', label)` for text search
+- `JSON_VALUE("DATA", '$.path')` for scalar value extraction
+- `/*+ DOMAIN_INDEX_SORT */` hint for optimized score sorting
+
+**Note:** UC-5, UC-6, UC-7 have issues with array paths in `json_textcontains()`. See [UC_UNIFIED_SUMMARY.md](UC_UNIFIED_SUMMARY.md) for details.
 
 ### UC Unified Search (DBMS_SEARCH.FIND)
 
@@ -530,17 +539,13 @@ wf_bench/
     │   ├── query/                 # Query execution
     │   │   └── ParameterGenerator.java  # Parameter value generation
     │   ├── search/                # Hybrid search services
-    │   │   ├── FuzzySearchService.java    # Oracle Text fuzzy search
-    │   │   ├── PhoneticSearchService.java # SOUNDEX phonetic matching
-    │   │   ├── VectorSearchService.java   # Oracle AI Vector Search
-    │   │   ├── HybridSearchService.java   # Combined search strategies
-    │   │   ├── SqlJoinSearchService.java  # UC SQL JOIN queries
-    │   │   ├── UcSearchService.java       # UC Unified Search (DBMS_SEARCH)
-    │   │   ├── UcSearchResult.java        # UC search result model
-    │   │   ├── SearchCategory.java        # UC category definitions
-    │   │   ├── SearchHit.java             # DBMS_SEARCH hit record
-    │   │   ├── CustomerHitGroup.java      # Customer hit aggregation
-    │   │   └── SampleDataLoader.java      # UC parameter loading
+    │   │   ├── FuzzySearchService.java     # Oracle Text fuzzy search
+    │   │   ├── PhoneticSearchService.java  # SOUNDEX phonetic matching
+    │   │   ├── VectorSearchService.java    # Oracle AI Vector Search
+    │   │   ├── HybridSearchService.java    # Combined search strategies
+    │   │   ├── MongoSqlSearchService.java  # UC 1-7 via MongoDB $sql operator
+    │   │   ├── UcSearchResult.java         # UC search result model
+    │   │   └── SampleDataLoader.java       # UC parameter loading
     │   └── report/                # Output formatting
     └── test/java/                 # Unit tests (278 tests)
 ```
