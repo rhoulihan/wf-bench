@@ -507,26 +507,32 @@ public class MongoSqlSearchService {
 
     /**
      * Builds the SQL query for UC-6: Email + Account Last 4.
-     * Fuzzy matching on both email and account last 4, combined score.
+     * Fuzzy matching on email local part (before @) and account last 4, combined score.
      * Account last 4 uses ends-with pattern (%term) to anchor at end of string.
+     *
+     * <p>Optimization: Start with accounts (more selective on last4), then join to identities.
+     * This reduces the search space for email matching.
      */
     public String buildUC6Query(String email, String accountLast4, int limit) {
         String identity = collectionPrefix + "identity";
         String account = collectionPrefix + "account";
         String address = collectionPrefix + "address";
 
+        // Extract local part of email (before @) for more focused fuzzy matching
+        String emailLocalPart = extractEmailLocalPart(email);
+
         return """
             WITH
-            identities AS (
-              SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) iscore
+            accounts AS (
+              SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) ascore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."primaryEmail"', '%s', 1)
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 1)
               ORDER BY score(1) DESC
             ),
-            accounts AS (
-              SELECT "DATA", score(2) ascore
+            identities AS (
+              SELECT "DATA", score(2) iscore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 2)
+              WHERE json_textcontains("DATA", '$."primaryEmail"', '%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -537,9 +543,9 @@ public class MongoSqlSearchService {
                 i."DATA" identity_data,
                 ac."DATA" account_data,
                 a."DATA" address_data,
-                (i.iscore + ac.ascore) / 2 ranking_score
-              FROM identities i
-              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+                (ac.ascore + i.iscore) / 2 ranking_score
+              FROM accounts ac
+              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber')
               JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
             )
             SELECT json {
@@ -566,11 +572,12 @@ public class MongoSqlSearchService {
             FROM joined j
             ORDER BY j.ranking_score DESC
             FETCH FIRST %d ROWS ONLY
-            """.formatted(identity, escapeSql(email), account, escapeSql(accountLast4), address, limit);
+            """.formatted(account, escapeSql(accountLast4), identity, escapeSql(emailLocalPart), address, limit);
     }
 
     /**
      * Builds the SQL query for UC-7: Email + Phone + Account Number.
+     * Fuzzy matching on email local part (before @), phone, and account number.
      *
      * <p>Note: Each CTE with json_textcontains must use unique score labels (1, 2, 3)
      * to avoid view-merge conflicts per Oracle team guidance.
@@ -580,6 +587,9 @@ public class MongoSqlSearchService {
         String phone = collectionPrefix + "phone";
         String account = collectionPrefix + "account";
         String address = collectionPrefix + "address";
+
+        // Extract local part of email (before @) for more focused fuzzy matching
+        String emailLocalPart = extractEmailLocalPart(email);
 
         return """
             WITH
@@ -639,7 +649,7 @@ public class MongoSqlSearchService {
             FROM joined j
             ORDER BY j.combined_score DESC
             FETCH FIRST %d ROWS ONLY
-            """.formatted(identity, escapeSql(email), phone, escapeSql(phoneNumber),
+            """.formatted(identity, escapeSql(emailLocalPart), phone, escapeSql(phoneNumber),
                 account, escapeSql(accountNumber), address, limit);
     }
 
@@ -755,6 +765,24 @@ public class MongoSqlSearchService {
         return value
             .replace("'", "''")     // Escape single quotes
             .replace("\\", "\\\\"); // Escape backslashes
+    }
+
+    /**
+     * Extracts the local part of an email address (before the @ symbol).
+     * This provides more focused fuzzy matching by ignoring the domain.
+     *
+     * @param email the full email address
+     * @return the local part (before @), or the full string if no @ found
+     */
+    private String extractEmailLocalPart(String email) {
+        if (email == null || email.isBlank()) {
+            return email;
+        }
+        int atIndex = email.indexOf('@');
+        if (atIndex > 0) {
+            return email.substring(0, atIndex);
+        }
+        return email;
     }
 
     // ==================== Validation Methods ====================
