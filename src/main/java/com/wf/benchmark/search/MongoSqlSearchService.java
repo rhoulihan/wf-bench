@@ -532,7 +532,7 @@ public class MongoSqlSearchService {
             identities AS (
               SELECT "DATA", score(2) iscore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."primaryEmail"', '%s', 2)
+              WHERE json_textcontains("DATA", '$."emails"."emailAddress"', '%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -596,7 +596,7 @@ public class MongoSqlSearchService {
             identities AS (
               SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) iscore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."primaryEmail"', '%s', 1)
+              WHERE json_textcontains("DATA", '$."emails"."emailAddress"', '%s', 1)
               ORDER BY score(1) DESC
             ),
             phones AS (

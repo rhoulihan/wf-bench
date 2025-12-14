@@ -293,13 +293,13 @@ All UC queries return results in the same format. Here is a sample result:
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN | **6.70 ms** | 9.27 ms | 149.2/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **6.05 ms** | 6.72 ms | 165.4/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **6.13 ms** | 7.14 ms | 163.2/s | 20/20 |
-| UC-4 | Account + SSN | **5.84 ms** | 7.78 ms | 171.1/s | 20/20 |
-| UC-5 | City/State/ZIP + SSN + Account | **114.96 ms** | 191.10 ms | 8.7/s | 20/20 |
-| UC-6 | Email + Account Last 4 | **1118.11 ms** | 1132.54 ms | 0.9/s | 20/20 |
-| UC-7 | Email + Phone + Account | **5.95 ms** | 6.34 ms | 168.1/s | 20/20 |
+| UC-1 | Phone + SSN | **6.85 ms** | 7.86 ms | 146.0/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **6.32 ms** | 6.93 ms | 158.3/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **6.10 ms** | 6.72 ms | 164.0/s | 20/20 |
+| UC-4 | Account + SSN | **5.56 ms** | 6.20 ms | 180.0/s | 20/20 |
+| UC-5 | City/State/ZIP + SSN + Account | **113.98 ms** | 188.67 ms | 8.8/s | 20/20 |
+| UC-6 | Email + Account Last 4 | **1387.52 ms** | 1918.98 ms | 0.7/s | 20/20 |
+| UC-7 | Email + Phone + Account | **42.45 ms** | 54.40 ms | 23.6/s | 20/20 |
 
 **All 7 UC queries pass 20/20 with fuzzy matching on ALL conditions!**
 
@@ -312,20 +312,21 @@ All UC queries return results in the same format. Here is a sample result:
 | UC-3 | Phone, Account Last 4 | `4155551234`, `%9012` |
 | UC-4 | Account Number, SSN Last 4 | `1234567890`, `%4567` |
 | UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `San Francisco`, `CA`, `94102`, `%7890`, `%3456` |
-| UC-6 | Email, Account Last 4 | `user123@gmail.com`, `%2345` |
-| UC-7 | Email, Phone, Account Number | `john.smith@example.com`, `4155559999`, `9876543210` |
+| UC-6 | Email, Account Last 4 | `james.smith@gmail.com`, `%2345` |
+| UC-7 | Email, Phone, Account Number | `john.williams@outlook.com`, `4155559999`, `9876543210` |
 
 **Notes:**
 - Phone numbers: 10-digit fuzzy match
 - SSN Last 4: `%term` pattern anchors to end of full taxIdentificationNumber field
 - Account Last 4: `%term` pattern anchors to end of accountNumberLast4 field
-- Email: Fuzzy match on local part only (before @) for better performance
+- Email: Fuzzy match on `emails.emailAddress` array field, searches local part only (before @)
 - Account Number: Full 10-digit fuzzy match
 
 ### Performance Notes
-- **UC-6 (Email search)** shows higher latency (~1.1s) due to email text search complexity. The query is optimized to start with account last4 (more selective) before joining to identities.
-- **UC-5 (Geo search)** involves three fuzzy conditions plus exact match on state/ZIP, resulting in moderate latency.
-- **UC-1 through UC-4, UC-7** achieve sub-10ms latency with 150+ queries/second throughput.
+- **UC-6 (Email search)** shows higher latency (~1.4s) due to fuzzy text search on email addresses across 1M identity records. Common name patterns result in many partial matches.
+- **UC-5 (Geo search)** involves three fuzzy conditions plus exact match on state/ZIP, resulting in moderate latency (~114ms).
+- **UC-7 (Email + Phone + Account)** benefits from multiple selective conditions, achieving ~42ms despite email search.
+- **UC-1 through UC-4** achieve sub-10ms latency with 150+ queries/second throughput.
 
 ---
 

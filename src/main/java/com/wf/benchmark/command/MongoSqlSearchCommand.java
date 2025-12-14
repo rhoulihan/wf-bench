@@ -472,13 +472,28 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
         return params;
     }
 
+    // Common first and last names for realistic email generation
+    private static final String[] FIRST_NAMES = {
+        "james", "john", "robert", "michael", "william", "david", "richard", "joseph", "thomas", "charles",
+        "mary", "patricia", "jennifer", "linda", "elizabeth", "barbara", "susan", "jessica", "sarah", "karen",
+        "daniel", "matthew", "anthony", "mark", "donald", "steven", "paul", "andrew", "joshua", "kenneth"
+    };
+    private static final String[] LAST_NAMES = {
+        "smith", "johnson", "williams", "brown", "jones", "garcia", "miller", "davis", "rodriguez", "martinez",
+        "hernandez", "lopez", "gonzalez", "wilson", "anderson", "thomas", "taylor", "moore", "jackson", "martin"
+    };
+    private static final String[] EMAIL_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com"};
+
     private List<String[]> generateUC6Params() {
         // Email + Account Last 4
-        String[] domains = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "example.com"};
+        // Generate realistic name-based emails matching data format: firstname.lastname@domain
         List<String[]> params = new ArrayList<>();
         Random r = new Random(6);
         for (int i = 0; i < 100; i++) {
-            String email = String.format("user%d@%s", r.nextInt(10000), domains[r.nextInt(domains.length)]);
+            String firstName = FIRST_NAMES[r.nextInt(FIRST_NAMES.length)];
+            String lastName = LAST_NAMES[r.nextInt(LAST_NAMES.length)];
+            String domain = EMAIL_DOMAINS[r.nextInt(EMAIL_DOMAINS.length)];
+            String email = firstName + "." + lastName + "@" + domain;
             String acct4 = String.format("%04d", r.nextInt(10000));
             params.add(new String[]{email, acct4});
         }
@@ -489,11 +504,13 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
         // Email + Phone + Account Number
         // Note: Must use Math.abs() to avoid negative numbers which cause Oracle Text
         // parser errors (DRG-50901) because '-' is interpreted as NOT operator
-        String[] domains = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "example.com"};
         List<String[]> params = new ArrayList<>();
         Random r = new Random(7);
         for (int i = 0; i < 100; i++) {
-            String email = String.format("user%d@%s", r.nextInt(10000), domains[r.nextInt(domains.length)]);
+            String firstName = FIRST_NAMES[r.nextInt(FIRST_NAMES.length)];
+            String lastName = LAST_NAMES[r.nextInt(LAST_NAMES.length)];
+            String domain = EMAIL_DOMAINS[r.nextInt(EMAIL_DOMAINS.length)];
+            String email = firstName + "." + lastName + "@" + domain;
             String phone = String.format("%d%07d", 415 + r.nextInt(10), r.nextInt(10000000));
             String acct = String.format("%010d", Math.abs(r.nextLong() % 10000000000L));
             params.add(new String[]{email, phone, acct});
