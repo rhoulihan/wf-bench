@@ -486,14 +486,15 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
 
     private List<String[]> generateUC6Params() {
         // Email + Account Last 4
-        // Generate realistic name-based emails matching data format: firstname.lastname@domain
+        // Generate emails matching data format: firstinitiallastname@domain (e.g., jsmith@gmail.com)
         List<String[]> params = new ArrayList<>();
         Random r = new Random(6);
         for (int i = 0; i < 100; i++) {
             String firstName = FIRST_NAMES[r.nextInt(FIRST_NAMES.length)];
             String lastName = LAST_NAMES[r.nextInt(LAST_NAMES.length)];
             String domain = EMAIL_DOMAINS[r.nextInt(EMAIL_DOMAINS.length)];
-            String email = firstName + "." + lastName + "@" + domain;
+            // Format: firstinitiallastname (e.g., jsmith)
+            String email = firstName.charAt(0) + lastName + "@" + domain;
             String acct4 = String.format("%04d", r.nextInt(10000));
             params.add(new String[]{email, acct4});
         }
@@ -510,7 +511,8 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
             String firstName = FIRST_NAMES[r.nextInt(FIRST_NAMES.length)];
             String lastName = LAST_NAMES[r.nextInt(LAST_NAMES.length)];
             String domain = EMAIL_DOMAINS[r.nextInt(EMAIL_DOMAINS.length)];
-            String email = firstName + "." + lastName + "@" + domain;
+            // Format: firstinitiallastname (e.g., jsmith)
+            String email = firstName.charAt(0) + lastName + "@" + domain;
             String phone = String.format("%d%07d", 415 + r.nextInt(10), r.nextInt(10000000));
             String acct = String.format("%010d", Math.abs(r.nextLong() % 10000000000L));
             params.add(new String[]{email, phone, acct});

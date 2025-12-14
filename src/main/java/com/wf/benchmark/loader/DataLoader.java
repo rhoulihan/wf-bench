@@ -91,22 +91,30 @@ public class DataLoader {
         log.info("Starting data load - Identity: {}, Address: {}, Phone: {}, Account: {}",
             identityCount, addressCount, phoneCount, accountCount);
 
-        // Load each collection with appropriate sample collectors
-        LoadMetrics identityMetrics = loadCollection(database, identityGen, identityCount,
-            sampleCollector::collectIdentitySample);
-        allMetrics.add(identityMetrics);
+        // Load each collection with appropriate sample collectors (if not filtered out)
+        if (config.shouldLoadCollection("identity")) {
+            LoadMetrics identityMetrics = loadCollection(database, identityGen, identityCount,
+                sampleCollector::collectIdentitySample);
+            allMetrics.add(identityMetrics);
+        }
 
-        LoadMetrics addressMetrics = loadCollection(database, addressGen, addressCount,
-            sampleCollector::collectAddressSample);
-        allMetrics.add(addressMetrics);
+        if (config.shouldLoadCollection("address")) {
+            LoadMetrics addressMetrics = loadCollection(database, addressGen, addressCount,
+                sampleCollector::collectAddressSample);
+            allMetrics.add(addressMetrics);
+        }
 
-        LoadMetrics phoneMetrics = loadCollection(database, phoneGen, phoneCount,
-            sampleCollector::collectPhoneSample);
-        allMetrics.add(phoneMetrics);
+        if (config.shouldLoadCollection("phone")) {
+            LoadMetrics phoneMetrics = loadCollection(database, phoneGen, phoneCount,
+                sampleCollector::collectPhoneSample);
+            allMetrics.add(phoneMetrics);
+        }
 
-        LoadMetrics accountMetrics = loadCollection(database, accountGen, accountCount,
-            sampleCollector::collectAccountSample);
-        allMetrics.add(accountMetrics);
+        if (config.shouldLoadCollection("account")) {
+            LoadMetrics accountMetrics = loadCollection(database, accountGen, accountCount,
+                sampleCollector::collectAccountSample);
+            allMetrics.add(accountMetrics);
+        }
 
         // Write sample data to file
         try {
@@ -121,16 +129,14 @@ public class DataLoader {
 
     private void dropCollections(MongoDatabase database) {
         String prefix = config.getCollectionPrefix();
-        List<String> collections = List.of(
-            prefix + "identity",
-            prefix + "address",
-            prefix + "phone",
-            prefix + "account"
-        );
+        List<String> baseNames = List.of("identity", "address", "phone", "account");
 
-        for (String collName : collections) {
-            log.info("Dropping collection: {}", collName);
-            database.getCollection(collName).drop();
+        for (String baseName : baseNames) {
+            if (config.shouldLoadCollection(baseName)) {
+                String collName = prefix + baseName;
+                log.info("Dropping collection: {}", collName);
+                database.getCollection(collName).drop();
+            }
         }
     }
 

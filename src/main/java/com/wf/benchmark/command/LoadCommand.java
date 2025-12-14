@@ -73,6 +73,9 @@ public class LoadCommand implements Callable<Integer> {
     @Option(names = {"--create-indexes"}, description = "Create required indexes after loading", defaultValue = "false")
     private boolean createIndexes;
 
+    @Option(names = {"--collections"}, description = "Comma-separated list of collections to load (identity,address,phone,account). Default: all", split = ",")
+    private List<String> collections;
+
     @Override
     public Integer call() {
         try {
@@ -122,6 +125,7 @@ public class LoadCommand implements Callable<Integer> {
         config.setCollectionPrefix(collectionPrefix);
         config.setQuiet(quiet);
         config.setProgressInterval(progressInterval);
+        config.setCollections(collections);
 
         return config;
     }

@@ -272,13 +272,15 @@ All UC queries return results in the same format. Here is a sample result:
 
 ---
 
-## Benchmark Results (December 13, 2025)
+## Benchmark Results (December 14, 2025)
 
 ### Test Configuration
 - **Implementation:** MongoDB $sql operator with json_textcontains()
 - **Fuzzy Matching:** ALL search conditions use fuzzy matching
 - **Score Calculation:** Combined average of all fuzzy scores
 - **Address Requirement:** INNER JOIN (customers must have addresses)
+- **Email Format:** `firstinitiallastname@domain` (e.g., `jsmith@gmail.com`) - optimized for text search
+- **Statistics:** Freshly gathered on all tables
 
 ### Dataset Size (LARGE)
 | Collection | Document Count | Description |
@@ -293,40 +295,44 @@ All UC queries return results in the same format. Here is a sample result:
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN | **6.85 ms** | 7.86 ms | 146.0/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **6.32 ms** | 6.93 ms | 158.3/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **6.10 ms** | 6.72 ms | 164.0/s | 20/20 |
-| UC-4 | Account + SSN | **5.56 ms** | 6.20 ms | 180.0/s | 20/20 |
-| UC-5 | City/State/ZIP + SSN + Account | **113.98 ms** | 188.67 ms | 8.8/s | 20/20 |
-| UC-6 | Email + Account Last 4 | **1387.52 ms** | 1918.98 ms | 0.7/s | 20/20 |
-| UC-7 | Email + Phone + Account | **42.45 ms** | 54.40 ms | 23.6/s | 20/20 |
+| UC-1 | Phone + SSN | **9.28 ms** | 7.54 ms | 107.7/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **23.61 ms** | 119.74 ms | 42.4/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **6.01 ms** | 6.59 ms | 166.4/s | 20/20 |
+| UC-4 | Account + SSN | **10.01 ms** | 6.68 ms | 99.9/s | 20/20 |
+| UC-5 | City/State/ZIP + SSN + Account | **117.74 ms** | 191.23 ms | 8.5/s | 20/20 |
+| UC-6 | Email + Account Last 4 | **1365.66 ms** | 1589.25 ms | 0.7/s | 20/20 |
+| UC-7 | Email + Phone + Account | **5.77 ms** | 6.21 ms | 173.3/s | 20/20 |
 
 **All 7 UC queries pass 20/20 with fuzzy matching on ALL conditions!**
+
+**Note:** Test data uses actual matching customers from the database. Statistics freshly gathered on all tables.
 
 ### Example Search Terms
 
 | UC | Search Parameters | Example Values |
 |----|-------------------|----------------|
-| UC-1 | Phone, SSN Last 4 | `4151234567`, `%6789` |
-| UC-2 | Phone, SSN Last 4, Account Last 4 | `4159876543`, `%1234`, `%5678` |
-| UC-3 | Phone, Account Last 4 | `4155551234`, `%9012` |
-| UC-4 | Account Number, SSN Last 4 | `1234567890`, `%4567` |
-| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `San Francisco`, `CA`, `94102`, `%7890`, `%3456` |
-| UC-6 | Email, Account Last 4 | `james.smith@gmail.com`, `%2345` |
-| UC-7 | Email, Phone, Account Number | `john.williams@outlook.com`, `4155559999`, `9876543210` |
+| UC-1 | Phone, SSN Last 4 | `5865531910`, `%0268` |
+| UC-2 | Phone, SSN Last 4, Account Last 4 | `5865531910`, `%0268`, `%0000` |
+| UC-3 | Phone, Account Last 4 | `5865531910`, `%0000` |
+| UC-4 | Account Number, SSN Last 4 | `100000000000`, `%0268` |
+| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `North Cristobalhaven`, `IL`, `75416`, `%0268`, `%0000` |
+| UC-6 | Email (local part), Account Last 4 | `mkshlerin`, `%0000` |
+| UC-7 | Email, Phone, Account Number | `mkshlerin`, `5865531910`, `100000000000` |
 
 **Notes:**
 - Phone numbers: 10-digit fuzzy match
 - SSN Last 4: `%term` pattern anchors to end of full taxIdentificationNumber field
 - Account Last 4: `%term` pattern anchors to end of accountNumberLast4 field
-- Email: Fuzzy match on `emails.emailAddress` array field, searches local part only (before @)
-- Account Number: Full 10-digit fuzzy match
+- Email: Fuzzy match on `emails.emailAddress` array field, **searches local part only** (e.g., `mkshlerin` not `mkshlerin@icloud.com`)
+- Account Number: Full account number fuzzy match
+- Email format: `firstinitiallastname@domain` (e.g., `mkshlerin@icloud.com`, `avandervort@gmail.com`)
 
 ### Performance Notes
-- **UC-6 (Email search)** shows higher latency (~1.4s) due to fuzzy text search on email addresses across 1M identity records. Common name patterns result in many partial matches.
-- **UC-5 (Geo search)** involves three fuzzy conditions plus exact match on state/ZIP, resulting in moderate latency (~114ms).
-- **UC-7 (Email + Phone + Account)** benefits from multiple selective conditions, achieving ~42ms despite email search.
-- **UC-1 through UC-4** achieve sub-10ms latency with 150+ queries/second throughput.
+- **UC-6 (Email search)** remains the slowest query (~1.4s) due to fuzzy text search on email addresses across 1M identity records. Common name patterns result in many partial matches.
+- **UC-7 (Email + Phone + Account)** achieves excellent performance (~6ms) as multiple selective conditions quickly narrow results.
+- **UC-5 (Geo search)** involves three fuzzy conditions plus exact match on state/ZIP, resulting in moderate latency (~118ms).
+- **UC-4 (Account + SSN)** performs well (~10ms) with domain index access on both account and identity collections.
+- **UC-1, UC-2, UC-3** achieve sub-25ms latency with phone-based queries providing good selectivity.
 
 ---
 
@@ -388,13 +394,13 @@ WITH
 phones AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore
   FROM "phone"
-  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '4155551234', 1)
+  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '5549414620', 1)
   ORDER BY score(1) DESC
 ),
 identities AS (
   SELECT "DATA", score(2) iscore
   FROM "identity"
-  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%6789', 2)
+  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%1007', 2)
 ),
 addresses AS (
   SELECT "DATA"
@@ -435,6 +441,31 @@ FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Query Plan:**
+```
+-----------------------------------------------------------------------------------------------------------------
+| Id  | Operation                         | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+-----------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                  |                     |    10 | 41150 |       |    21M  (1)| 00:14:07 |
+|*  1 |  COUNT STOPKEY                    |                     |       |       |       |            |          |
+|   2 |   VIEW                            |                     |    20M|    78G|       |    21M  (1)| 00:14:07 |
+|*  3 |    SORT ORDER BY STOPKEY          |                     |    20M|   103G|   156G|    21M  (1)| 00:14:07 |
+|*  4 |     HASH JOIN                     |                     |    20M|   103G|       | 72990   (1)| 00:00:03 |
+|   5 |      TABLE ACCESS BY INDEX ROWID  | phone               |  1250 |  2238K|       |   834   (0)| 00:00:01 |
+|*  6 |       DOMAIN INDEX                | IDX_PHONE_SEARCH    |       |       |       |     4   (0)| 00:00:01 |
+|*  7 |      HASH JOIN                    |                     |  1640K|  5621M|       | 72095   (1)| 00:00:03 |
+|   8 |       JOIN FILTER CREATE          | :BF0000             |   164 |   327K|       |   122   (0)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID| identity            |   164 |   327K|       |   122   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|  11 |       JOIN FILTER USE             | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|* 12 |        TABLE ACCESS STORAGE FULL  | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+-----------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   6 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
+  10 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
 ```
 
 ---
@@ -578,13 +609,13 @@ WITH
 accounts AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumber"', '1234567890', 1)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumber"', '100000375005', 1)
   ORDER BY score(1) DESC
 ),
 identities AS (
   SELECT "DATA", score(2) iscore
   FROM "identity"
-  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%6789', 2)
+  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%1007', 2)
 ),
 addresses AS (
   SELECT "DATA"
@@ -597,7 +628,7 @@ joined AS (
     a."DATA" address_data,
     (ac.ascore + i.iscore) / 2 ranking_score
   FROM accounts ac
-  JOIN identities i ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN identities i ON JSON_VALUE(ac."DATA", '$.accountKey.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
   JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
 )
 SELECT json {
@@ -625,6 +656,31 @@ FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Query Plan:**
+```
+-----------------------------------------------------------------------------------------------------------------
+| Id  | Operation                         | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+-----------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                  |                     |    10 | 41150 |       |    11M  (1)| 00:07:16 |
+|*  1 |  COUNT STOPKEY                    |                     |       |       |       |            |          |
+|   2 |   VIEW                            |                     |    12M|    47G|       |    11M  (1)| 00:07:16 |
+|*  3 |    SORT ORDER BY STOPKEY          |                     |    12M|    53G|    93G|    11M  (1)| 00:07:16 |
+|*  4 |     HASH JOIN                     |                     |    12M|    53G|       | 72455   (1)| 00:00:03 |
+|   5 |      JOIN FILTER CREATE           | :BF0000             |  1230 |  3706K|       |   450   (0)| 00:00:01 |
+|*  6 |       HASH JOIN                   |                     |  1230 |  3706K|       |   450   (0)| 00:00:01 |
+|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   164 |   327K|       |   122   (0)| 00:00:01 |
+|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|       |   328   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
+|  11 |      JOIN FILTER USE              | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|* 12 |       TABLE ACCESS STORAGE FULL   | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+-----------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   8 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
+  10 - access("CTXSYS"."CONTAINS"("account"."DATA",'(100000375005) INPATH (/accountKey/accountNumber)',1)>0)
 ```
 
 ---
@@ -695,19 +751,21 @@ FETCH FIRST 10 ROWS ONLY
 
 ### UC-6: Email + Account Last 4
 
+**Note:** Email search uses the local part only (e.g., `ashields` not `ashields@gmail.com`) via `extractEmailLocalPart()` in the implementation.
+
 ```javascript
 db.aggregate([{"$sql": `
 WITH
 identities AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) iscore
   FROM "identity"
-  WHERE json_textcontains("DATA", '$."primaryEmail"', 'john.smith@example.com', 1)
+  WHERE json_textcontains("DATA", '$."emails"."emailAddress"', 'ashields', 1)
   ORDER BY score(1) DESC
 ),
 accounts AS (
   SELECT "DATA", score(2) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%1234', 2)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%5005', 2)
 ),
 addresses AS (
   SELECT "DATA"
@@ -720,7 +778,7 @@ joined AS (
     a."DATA" address_data,
     (i.iscore + ac.ascore) / 2 ranking_score
   FROM identities i
-  JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountKey.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
   JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
 )
 SELECT json {
@@ -748,6 +806,31 @@ FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Query Plan:**
+```
+-----------------------------------------------------------------------------------------------------------------
+| Id  | Operation                         | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+-----------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                  |                     |    10 | 41150 |       |    11M  (1)| 00:07:16 |
+|*  1 |  COUNT STOPKEY                    |                     |       |       |       |            |          |
+|   2 |   VIEW                            |                     |    12M|    47G|       |    11M  (1)| 00:07:16 |
+|*  3 |    SORT ORDER BY STOPKEY          |                     |    12M|    53G|    93G|    11M  (1)| 00:07:16 |
+|*  4 |     HASH JOIN                     |                     |    12M|    53G|       | 72455   (1)| 00:00:03 |
+|   5 |      JOIN FILTER CREATE           | :BF0000             |  1230 |  3706K|       |   450   (0)| 00:00:01 |
+|*  6 |       HASH JOIN                   |                     |  1230 |  3706K|       |   450   (0)| 00:00:01 |
+|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   164 |   327K|       |   122   (0)| 00:00:01 |
+|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|       |   328   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
+|  11 |      JOIN FILTER USE              | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|* 12 |       TABLE ACCESS STORAGE FULL   | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+-----------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   8 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(ashields) INPATH (/emails/emailAddress)',1)>0)
+  10 - access("CTXSYS"."CONTAINS"("account"."DATA",'(%5005) INPATH (/accountKey/accountNumberLast4)',2)>0)
 ```
 
 ---

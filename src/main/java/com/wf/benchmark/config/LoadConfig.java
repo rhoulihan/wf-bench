@@ -57,6 +57,9 @@ public class LoadConfig {
     private int progressInterval = 5000;
     private boolean quiet = false;
 
+    // Collection filter (null = all collections)
+    private java.util.List<String> collections = null;
+
     public LoadConfig() {
     }
 
@@ -324,5 +327,21 @@ public class LoadConfig {
 
     public void setQuiet(boolean quiet) {
         this.quiet = quiet;
+    }
+
+    public java.util.List<String> getCollections() {
+        return collections;
+    }
+
+    public void setCollections(java.util.List<String> collections) {
+        this.collections = collections;
+    }
+
+    public boolean shouldLoadCollection(String collectionName) {
+        if (collections == null || collections.isEmpty()) {
+            return true; // Load all collections by default
+        }
+        return collections.stream()
+            .anyMatch(c -> c.equalsIgnoreCase(collectionName));
     }
 }

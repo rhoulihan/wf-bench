@@ -311,7 +311,8 @@ public class IdentityGenerator implements DataGenerator {
     }
 
     /**
-     * Generate a realistic email address based on name.
+     * Generate email address in firstinitiallastname format (e.g., jsmith@gmail.com).
+     * This format provides short, consistent local parts for efficient text search.
      */
     private String generateEmailAddress(String fullName, int index) {
         String[] parts = fullName.toLowerCase().replace("*", "").split("\\s+");
@@ -319,15 +320,10 @@ public class IdentityGenerator implements DataGenerator {
         String lastName = parts.length > 1 ? parts[parts.length - 1] : "name";
 
         String domain = random.randomChoice(EMAIL_DOMAINS);
-        int randomNum = random.randomInt(1, 9999);
 
-        // Different email formats
-        return switch (index % 4) {
-            case 0 -> firstName + "." + lastName + "@" + domain;
-            case 1 -> firstName + lastName + randomNum + "@" + domain;
-            case 2 -> firstName.charAt(0) + lastName + "@" + domain;
-            default -> lastName + "." + firstName + randomNum + "@" + domain;
-        };
+        // Format: firstinitiallastname (e.g., jsmith, mwilliams)
+        String localPart = firstName.charAt(0) + lastName;
+        return localPart + "@" + domain;
     }
 
     private String generateFutureDate(int minYears, int maxYears) {
