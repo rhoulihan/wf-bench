@@ -7,6 +7,7 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -37,6 +38,65 @@ public class IndexCreator {
         createPhoneIndexes(quiet);
         createAccountIndexes(quiet);
         createAddressIndexes(quiet);
+        createJsonSearchIndex(quiet);
+    }
+
+    /**
+     * Create JSON Search Indexes on all collections that use json_textcontains().
+     * These indexes are required for the score() function used in UC queries.
+     *
+     * <p>Collections requiring search indexes:
+     * <ul>
+     *   <li>identity - for SSN and email searches</li>
+     *   <li>phone - for phone number searches</li>
+     *   <li>account - for account number searches</li>
+     *   <li>address - for city name searches</li>
+     * </ul>
+     *
+     * @param quiet if true, suppress console output
+     */
+    private void createJsonSearchIndex(boolean quiet) {
+        // Create search indexes on all collections used by UC queries
+        String[] collections = {"identity", "phone", "account", "address"};
+
+        for (String baseName : collections) {
+            String collName = collectionPrefix + baseName;
+            String indexName = "idx_" + collName + "_search";
+
+            if (!quiet) {
+                System.out.printf("  Creating JSON Search Index %s.%s...%n", collName, indexName);
+            }
+
+            try {
+                // Use MongoDB $sql aggregate operator to execute CREATE SEARCH INDEX DDL
+                String ddl = String.format(
+                    "CREATE SEARCH INDEX %s ON %s(DATA) FOR JSON",
+                    indexName, collName.toUpperCase()
+                );
+
+                Document sqlCommand = new Document("$sql", ddl);
+                database.getCollection(collName).aggregate(Arrays.asList(sqlCommand)).first();
+
+                if (!quiet) {
+                    System.out.printf("  JSON Search Index %s created successfully.%n", indexName);
+                }
+                log.info("Created JSON Search Index {} on {}", indexName, collName);
+            } catch (Exception e) {
+                String msg = e.getMessage();
+                if (msg != null && (msg.contains("already exists") || msg.contains("DRG-10700"))) {
+                    // Index already exists - this is fine
+                    if (!quiet) {
+                        System.out.printf("  JSON Search Index %s already exists.%n", indexName);
+                    }
+                    log.debug("JSON Search Index {} already exists on {}", indexName, collName);
+                } else {
+                    log.warn("Failed to create JSON Search Index on {}: {}", collName, msg);
+                    if (!quiet) {
+                        System.out.printf("  Warning: Could not create JSON Search Index on %s: %s%n", collName, msg);
+                    }
+                }
+            }
+        }
     }
 
     private void createIdentityIndexes(boolean quiet) {

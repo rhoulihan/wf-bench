@@ -54,6 +54,16 @@ This document provides a comprehensive summary of the UC 1-7 unified search impl
 - **Warmup Iterations:** 5
 - **Result Limit:** 10 documents per query
 
+### Dataset Sizes
+| Scale | Identity | Phone | Account | Address | Total Documents |
+|-------|----------|-------|---------|---------|-----------------|
+| SMALL | 10,000 | 25,000 | 15,000 | 10,000 | 60,000 |
+| MEDIUM | 100,000 | 250,000 | 150,000 | 100,000 | 600,000 |
+| LARGE | 1,000,000 | 2,500,000 | 1,500,000 | 1,000,000 | 6,000,000 |
+| XLARGE | 10,000,000 | 25,000,000 | 15,000,000 | 10,000,000 | 60,000,000 |
+
+**Ratios:** Each customer has ~2.5 phone numbers, ~1.5 accounts, and 1 address record on average.
+
 ### Collections
 | Collection | Description | Key Fields |
 |------------|-------------|------------|
@@ -270,19 +280,32 @@ All UC queries return results in the same format. Here is a sample result:
 - **Score Calculation:** Combined average of all fuzzy scores
 - **Address Requirement:** INNER JOIN (customers must have addresses)
 
-### Performance Summary
+### Dataset Size (LARGE)
+| Collection | Document Count | Description |
+|------------|----------------|-------------|
+| identity | 1,000,000 | Customer identity records |
+| phone | 2,500,000 | Phone number records (avg 2.5 per customer) |
+| account | 1,500,000 | Account records (avg 1.5 per customer) |
+| address | 1,000,000 | Address records (1 per customer) |
+| **Total** | **6,000,000** | |
+
+### Performance Summary (LARGE Dataset - 6M Documents)
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN | **34.14 ms** | 39.87 ms | 29.3/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **46.98 ms** | 62.11 ms | 21.3/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **18.47 ms** | 18.88 ms | 54.1/s | 20/20 |
-| UC-4 | Account + SSN | **32.42 ms** | 37.95 ms | 30.8/s | 20/20 |
-| UC-5 | City/State/ZIP + SSN + Account | **29.35 ms** | 35.33 ms | 34.1/s | 20/20 |
-| UC-6 | Email + Account Last 4 | **6.23 ms** | 6.58 ms | 160.5/s | 20/20 |
-| UC-7 | Email + Phone + Account | **6.42 ms** | 6.80 ms | 155.7/s | 20/20 |
+| UC-1 | Phone + SSN | **52.93 ms** | 67.84 ms | 18.9/s | 20/20 |
+| UC-2 | Phone + SSN + Account | **71.64 ms** | 90.18 ms | 14.0/s | 20/20 |
+| UC-3 | Phone + Account Last 4 | **63.71 ms** | 79.81 ms | 15.7/s | 20/20 |
+| UC-4 | Account + SSN | **50.61 ms** | 65.02 ms | 19.8/s | 20/20 |
+| UC-5 | City/State/ZIP + SSN + Account | **151.85 ms** | 230.14 ms | 6.6/s | 20/20 |
+| UC-6 | Email + Account Last 4 | **1255.42 ms** | 1364.99 ms | 0.8/s | 20/20 |
+| UC-7 | Email + Phone + Account | **70.54 ms** | 88.83 ms | 14.2/s | 20/20 |
 
 **All 7 UC queries pass 20/20 with fuzzy matching on ALL conditions!**
+
+### Performance Notes
+- **UC-6 (Email search)** shows significantly higher latency due to email field search characteristics on the identity collection. Consider adding a specialized index on the primaryEmail field for production use.
+- **UC-5 (Geo search)** involves three fuzzy conditions and geo filtering, resulting in moderate latency increase.
 
 ---
 
