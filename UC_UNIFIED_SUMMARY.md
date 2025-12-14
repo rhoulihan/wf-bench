@@ -307,19 +307,20 @@ All UC queries return results in the same format. Here is a sample result:
 
 | UC | Search Parameters | Example Values |
 |----|-------------------|----------------|
-| UC-1 | Phone, SSN Last 4 | `4151234567`, `6789` |
-| UC-2 | Phone, SSN Last 4, Account Last 4 | `4159876543`, `1234`, `5678` |
-| UC-3 | Phone, Account Last 4 | `4155551234`, `9012` |
-| UC-4 | Account Number, SSN Last 4 | `1234567890`, `4567` |
-| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `San Francisco`, `CA`, `94102`, `7890`, `3456` |
-| UC-6 | Email, Account Last 4 | `user123@gmail.com`, `2345` |
+| UC-1 | Phone, SSN Last 4 | `4151234567`, `%6789` |
+| UC-2 | Phone, SSN Last 4, Account Last 4 | `4159876543`, `%1234`, `%5678` |
+| UC-3 | Phone, Account Last 4 | `4155551234`, `%9012` |
+| UC-4 | Account Number, SSN Last 4 | `1234567890`, `%4567` |
+| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `San Francisco`, `CA`, `94102`, `%7890`, `%3456` |
+| UC-6 | Email, Account Last 4 | `user123@gmail.com`, `%2345` |
 | UC-7 | Email, Phone, Account Number | `john.smith@example.com`, `4155559999`, `9876543210` |
 
 **Notes:**
-- Phone numbers: 10-digit format (area code 415-424 + 7 digits)
-- SSN/Account Last 4: 4-digit suffix match using `%term` pattern
+- Phone numbers: 10-digit fuzzy match
+- SSN Last 4: `%term` pattern anchors to end of full taxIdentificationNumber field
+- Account Last 4: `%term` pattern anchors to end of accountNumberLast4 field
 - Email: Fuzzy match on local part only (before @) for better performance
-- Account Number: Full 10-digit account number
+- Account Number: Full 10-digit fuzzy match
 
 ### Performance Notes
 - **UC-6 (Email search)** shows higher latency (~1.1s) due to email text search complexity. The query is optimized to start with account last4 (more selective) before joining to identities.
