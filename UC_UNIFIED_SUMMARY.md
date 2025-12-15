@@ -1282,18 +1282,19 @@ Plan hash value: 1651662844
 ---------------------------------------------------------------------------------------------------------------
 | Id  | Operation                               | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
 ---------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                        |                     |    10 | 46670 |   126   (1)| 00:00:01 |
+|   0 | SELECT STATEMENT                        |                     |    10 | 46670 |   181   (0)| 00:00:01 |
 |*  1 |  COUNT STOPKEY                          |                     |       |       |            |          |
-|   2 |   NESTED LOOPS                          |                     |    10 | 46670 |   126   (1)| 00:00:01 |
-|   3 |    NESTED LOOPS                         |                     |    10 | 31060 |    96   (2)| 00:00:01 |
-|   4 |     TABLE ACCESS BY INDEX ROWID         | account             |   500 |   525K|     0   (0)| 00:00:01 |
-|*  5 |      DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     0   (0)| 00:00:01 |
-|*  6 |     TABLE ACCESS STORAGE FULL FIRST ROWS| identity            |    10 | 20290 |    95   (0)| 00:00:01 |
+|   2 |   NESTED LOOPS                          |                     |    10 | 46670 |   181   (0)| 00:00:01 |
+|   3 |    NESTED LOOPS                         |                     |    11 | 34166 |   148   (0)| 00:00:01 |
+|*  4 |     TABLE ACCESS BY INDEX ROWID         | account             |     8 |  8616 |    44   (0)| 00:00:01 |
+|*  5 |      DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     1   (0)| 00:00:01 |
+|*  6 |     TABLE ACCESS STORAGE FULL FIRST ROWS| identity            |    11 | 22319 |   104   (0)| 00:00:01 |
 |   7 |    TABLE ACCESS BY INDEX ROWID BATCHED  | address             |     1 |  1561 |     3   (0)| 00:00:01 |
 |*  8 |     INDEX RANGE SCAN                    | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
 ---------------------------------------------------------------------------------------------------------------
 
 Predicate Information:
+   4 - filter(JSON_VALUE(ac.DATA, '$.productTypeCode' ERROR ON ERROR)='BROKERAGE')
    5 - access(CONTAINS(account.DATA,'(100000375005) INPATH (/accountKey/accountNumber)')>0)
    6 - storage + filter on customerNumber JOIN condition
 ```
@@ -1321,7 +1322,7 @@ Plan hash value: 4227112093
 ---------------------------------------------------------------------------------------------------------------
 
 Predicate Information:
-   5 - access(CONTAINS(account.DATA,'(1000-0037-5005) INPATH (/accountKey/accountNumberHyphenated)')>0)
+   5 - access(CONTAINS(account.DATA,'(1000\-0037\-5005) INPATH (/accountKey/accountNumberHyphenated)')>0)
    6 - storage + filter on customerNumber JOIN condition
 ```
 
