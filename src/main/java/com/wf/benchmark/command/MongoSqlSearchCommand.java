@@ -134,6 +134,28 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
     @Option(names = {"--uc7-account"}, description = "Account number for UC-7 query")
     private String uc7Account;
 
+    // UC-8: TIN (full 9-digit)
+    @Option(names = {"--uc8-tin"}, description = "Full 9-digit TIN/SSN for UC-8 query")
+    private String uc8Tin;
+
+    // UC-9: Account Number + optional filters
+    @Option(names = {"--uc9-account"}, description = "Account number for UC-9 query")
+    private String uc9Account;
+
+    @Option(names = {"--uc9-product-type"}, description = "Optional product type filter for UC-9")
+    private String uc9ProductType;
+
+    @Option(names = {"--uc9-coid"}, description = "Optional company of interest ID filter for UC-9")
+    private String uc9Coid;
+
+    // UC-10: Tokenized Account Number (hyphenated)
+    @Option(names = {"--uc10-account"}, description = "Tokenized account number (XXXX-XXXX-XXXX) for UC-10 query")
+    private String uc10Account;
+
+    // UC-11: Phone Number (full 10-digit)
+    @Option(names = {"--uc11-phone"}, description = "Full 10-digit phone number for UC-11 query")
+    private String uc11Phone;
+
     // Sample data file for benchmark
     @Option(names = {"--sample-data-file"}, description = "Path to sample data JSON file for benchmark")
     private String sampleDataFile;
@@ -178,11 +200,24 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
             if (uc7Email != null && uc7Phone != null && uc7Account != null) {
                 return runUc7Query(searchService);
             }
+            if (uc8Tin != null) {
+                return runUc8Query(searchService);
+            }
+            if (uc9Account != null) {
+                return runUc9Query(searchService);
+            }
+            if (uc10Account != null) {
+                return runUc10Query(searchService);
+            }
+            if (uc11Phone != null) {
+                return runUc11Query(searchService);
+            }
 
             System.err.println("Error: Must specify --uc-benchmark or provide parameters for a specific UC query");
             System.err.println("Examples:");
-            System.err.println("  --uc-benchmark                           Run full UC 1-7 benchmark");
+            System.err.println("  --uc-benchmark                           Run full UC 1-11 benchmark");
             System.err.println("  --uc1-phone 4155551234 --uc1-ssn-last4 6789   Run UC-1 query");
+            System.err.println("  --uc8-tin 123456789                          Run UC-8 query");
             return 1;
 
         } catch (Exception e) {
@@ -302,11 +337,74 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
         }
     }
 
+    private int runUc8Query(MongoSqlSearchService service) {
+        System.out.println("=== UC-8: TIN (Full 9-digit) ===");
+        System.out.printf("TIN: %s%n%n", maskTaxId(uc8Tin));
+
+        try {
+            List<UcSearchResult> results = service.searchUC8(uc8Tin, limit);
+            printResults(results);
+            return 0;
+        } catch (Exception e) {
+            System.err.println("UC-8 query failed: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    private int runUc9Query(MongoSqlSearchService service) {
+        System.out.println("=== UC-9: Account Number + Optional Filters ===");
+        System.out.printf("Account: %s%n", uc9Account);
+        if (uc9ProductType != null) System.out.printf("Product Type: %s%n", uc9ProductType);
+        if (uc9Coid != null) System.out.printf("COID: %s%n", uc9Coid);
+        System.out.println();
+
+        try {
+            List<UcSearchResult> results = service.searchUC9(uc9Account, uc9ProductType, uc9Coid, limit);
+            printResults(results);
+            return 0;
+        } catch (Exception e) {
+            System.err.println("UC-9 query failed: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    private int runUc10Query(MongoSqlSearchService service) {
+        System.out.println("=== UC-10: Tokenized Account (Hyphenated) ===");
+        System.out.printf("Account: %s%n%n", uc10Account);
+
+        try {
+            List<UcSearchResult> results = service.searchUC10(uc10Account, limit);
+            printResults(results);
+            return 0;
+        } catch (Exception e) {
+            System.err.println("UC-10 query failed: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    private int runUc11Query(MongoSqlSearchService service) {
+        System.out.println("=== UC-11: Phone Number (Full 10-digit) ===");
+        System.out.printf("Phone: %s%n%n", uc11Phone);
+
+        try {
+            List<UcSearchResult> results = service.searchUC11(uc11Phone, limit);
+            printResults(results);
+            return 0;
+        } catch (Exception e) {
+            System.err.println("UC-11 query failed: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
     // ==================== UC Benchmark ====================
 
     private int runUcBenchmark(MongoSqlSearchService service) {
         System.out.println("╔══════════════════════════════════════════════════════════════════╗");
-        System.out.println("║         UC 1-7 Benchmark (MongoDB $sql with json_textcontains)   ║");
+        System.out.println("║        UC 1-11 Benchmark (MongoDB $sql with json_textcontains)   ║");
         System.out.println("╚══════════════════════════════════════════════════════════════════╝");
         System.out.println();
 
@@ -318,6 +416,10 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
         List<String[]> uc5Params;
         List<String[]> uc6Params;
         List<String[]> uc7Params;
+        List<String[]> uc8Params;
+        List<String[]> uc9Params;
+        List<String[]> uc10Params;
+        List<String[]> uc11Params;
 
         if (sampleDataFile != null && !sampleDataFile.isEmpty()) {
             try {
@@ -331,6 +433,10 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
                 uc5Params = loadUcParams(sampleData, "uc5", "city", "state", "zip", "ssnLast4", "accountLast4");
                 uc6Params = loadUcParams(sampleData, "uc6", "email", "accountLast4");
                 uc7Params = loadUcParams(sampleData, "uc7", "email", "phone", "accountNumber");
+                uc8Params = loadUcParamsOptional(sampleData, "uc8", "tin");
+                uc9Params = loadUcParamsOptional(sampleData, "uc9", "accountNumber", "productType", "coid");
+                uc10Params = loadUcParamsOptional(sampleData, "uc10", "accountNumberHyphenated");
+                uc11Params = loadUcParamsOptional(sampleData, "uc11", "phone");
             } catch (IOException e) {
                 System.err.println("Failed to load sample data file: " + e.getMessage());
                 return 1;
@@ -370,6 +476,27 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
 
         allResults.add(runUcQueryBenchmark("UC-7", "Email + Phone + Account", uc7Params,
             p -> service.searchUC7(p[0], p[1], p[2], limit)));
+
+        // UC 8-11 (if sample data available)
+        if (uc8Params != null && !uc8Params.isEmpty()) {
+            allResults.add(runUcQueryBenchmark("UC-8", "TIN (Full 9-digit)", uc8Params,
+                p -> service.searchUC8(p[0], limit)));
+        }
+
+        if (uc9Params != null && !uc9Params.isEmpty()) {
+            allResults.add(runUcQueryBenchmark("UC-9", "Account + Optional Filters", uc9Params,
+                p -> service.searchUC9(p[0], p.length > 1 ? p[1] : null, p.length > 2 ? p[2] : null, limit)));
+        }
+
+        if (uc10Params != null && !uc10Params.isEmpty()) {
+            allResults.add(runUcQueryBenchmark("UC-10", "Tokenized Account (Hyphenated)", uc10Params,
+                p -> service.searchUC10(p[0], limit)));
+        }
+
+        if (uc11Params != null && !uc11Params.isEmpty()) {
+            allResults.add(runUcQueryBenchmark("UC-11", "Phone (Full 10-digit)", uc11Params,
+                p -> service.searchUC11(p[0], limit)));
+        }
 
         // Print summary
         printBenchmarkSummary(allResults);
@@ -458,6 +585,39 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
             for (int i = 0; i < fields.length; i++) {
                 Object value = testCase.get(fields[i]);
                 values[i] = value != null ? value.toString() : "";
+            }
+            params.add(values);
+        }
+
+        return params;
+    }
+
+    /**
+     * Load UC params, returning null if UC data is not present (for optional UC 8-11).
+     */
+    @SuppressWarnings("unchecked")
+    private List<String[]> loadUcParamsOptional(Document sampleData, String ucKey, String... fields) {
+        Document ucTestCases = sampleData.get("ucTestCases", Document.class);
+        if (ucTestCases == null) {
+            return null;
+        }
+
+        Document ucData = ucTestCases.get(ucKey, Document.class);
+        if (ucData == null) {
+            return null;
+        }
+
+        List<Document> testCases = ucData.getList("testCases", Document.class);
+        if (testCases == null || testCases.isEmpty()) {
+            return null;
+        }
+
+        List<String[]> params = new ArrayList<>();
+        for (Document testCase : testCases) {
+            String[] values = new String[fields.length];
+            for (int i = 0; i < fields.length; i++) {
+                Object value = testCase.get(fields[i]);
+                values[i] = value != null ? value.toString() : null;
             }
             params.add(values);
         }
