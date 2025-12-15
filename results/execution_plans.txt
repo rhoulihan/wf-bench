@@ -1,0 +1,375 @@
+
+================================================================================
+UC-1: Phone + SSN Last 4
+phone=5549414620, ssnLast4=1007
+================================================================================
+
+Explained.
+
+
+PLAN_TABLE_OUTPUT                                                                                              
+______________________________________________________________________________________________________________ 
+Plan hash value: 2687655126                                                                                    
+                                                                                                               
+--------------------------------------------------------------------------------------------------------       
+| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |       
+--------------------------------------------------------------------------------------------------------       
+|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |  1181   (1)| 00:00:01 |       
+|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |       
+|   2 |   VIEW                           |                     |     1 |  4115 |  1181   (1)| 00:00:01 |       
+|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3899 |  1181   (1)| 00:00:01 |       
+|   4 |     NESTED LOOPS                 |                     |     1 |  3899 |  1180   (0)| 00:00:01 |       
+|*  5 |      HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |       
+|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |       
+|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |       
+|   8 |       TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |       
+|*  9 |        DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |       
+|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |       
+--------------------------------------------------------------------------------------------------------       
+                                                                                                               
+Predicate Information (identified by operation id):                                                            
+---------------------------------------------------                                                            
+                                                                                                               
+   1 - filter(ROWNUM<=10)                                                                                      
+   3 - filter(ROWNUM<=10)                                                                                      
+   5 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                      
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */         
+              FORMAT OSON , '$.phoneKey.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))    
+   7 - access("CTXSYS"."CONTAINS"("identity"."DATA" /*+ LOB_BY_VALUE */ ,'(%1007) INPATH                       
+              (/common/taxIdentificationNumber)',2)>0)                                                         
+   9 - access("CTXSYS"."CONTAINS"("phone"."DATA" /*+ LOB_BY_VALUE */ ,'(5549414620) INPATH                     
+              (/phoneKey/phoneNumber)',1)>0)                                                                   
+  10 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                      
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */         
+              FORMAT OSON , '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))         
+
+33 rows selected. 
+
+================================================================================
+UC-2: Phone + SSN Last 4 + Account Last 4
+phone=5549414620, ssnLast4=1007, accountLast4=5005
+================================================================================
+
+Explained.
+
+
+PLAN_TABLE_OUTPUT                                                                                                  
+__________________________________________________________________________________________________________________ 
+Plan hash value: 1906825944                                                                                        
+                                                                                                                   
+---------------------------------------------------------------------------------------------------------          
+| Id  | Operation                         | Name                | Rows  | Bytes | Cost (%CPU)| Time     |          
+---------------------------------------------------------------------------------------------------------          
+|   0 | SELECT STATEMENT                  |                     |     1 |  4115 |  1509   (1)| 00:00:01 |          
+|*  1 |  COUNT STOPKEY                    |                     |       |       |            |          |          
+|   2 |   VIEW                            |                     |     1 |  4115 |  1509   (1)| 00:00:01 |          
+|*  3 |    SORT ORDER BY STOPKEY          |                     |     1 |  4941 |  1509   (1)| 00:00:01 |          
+|   4 |     NESTED LOOPS                  |                     |     1 |  4941 |  1508   (0)| 00:00:01 |          
+|*  5 |      HASH JOIN                    |                     |     1 |  4928 |  1505   (0)| 00:00:01 |          
+|*  6 |       HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |          
+|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |          
+|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |          
+|   9 |        TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |          
+|* 10 |         DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |          
+|  11 |       TABLE ACCESS BY INDEX ROWID | account             |   750 |   763K|   328   (0)| 00:00:01 |          
+|* 12 |        DOMAIN INDEX               | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |          
+|* 13 |      INDEX RANGE SCAN             | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |          
+---------------------------------------------------------------------------------------------------------          
+                                                                                                                   
+Predicate Information (identified by operation id):                                                                
+---------------------------------------------------                                                                
+                                                                                                                   
+   1 - filter(ROWNUM<=10)                                                                                          
+   3 - filter(ROWNUM<=10)                                                                                          
+   5 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,                                                 
+              '$.accountHolders[0].customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX)                
+              )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber' RETURNING              
+              VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                                                            
+   6 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                          
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT     
+              OSON , '$.phoneKey.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))               
+   8 - access("CTXSYS"."CONTAINS"("identity"."DATA" /*+ LOB_BY_VALUE */ ,'(%1007) INPATH                           
+              (/common/taxIdentificationNumber)',2)>0)                                                             
+  10 - access("CTXSYS"."CONTAINS"("phone"."DATA" /*+ LOB_BY_VALUE */ ,'(5549414620) INPATH                         
+              (/phoneKey/phoneNumber)',1)>0)                                                                       
+  12 - access("CTXSYS"."CONTAINS"("account"."DATA" /*+ LOB_BY_VALUE */ ,'(5005) INPATH                             
+              (/accountKey/accountNumberLast4)',3)>0)                                                              
+  13 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                          
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT     
+              OSON , '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                    
+
+42 rows selected. 
+
+================================================================================
+UC-3: Phone + Account Last 4
+phone=5549414620, accountLast4=5005
+================================================================================
+
+Explained.
+
+
+PLAN_TABLE_OUTPUT                                                                                                         
+_________________________________________________________________________________________________________________________ 
+Plan hash value: 3282309503                                                                                               
+                                                                                                                          
+------------------------------------------------------------------------------------------------------------------        
+| Id  | Operation                                 | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |        
+------------------------------------------------------------------------------------------------------------------        
+|   0 | SELECT STATEMENT                          |                      |     1 |  4115 |  3417   (1)| 00:00:01 |        
+|*  1 |  COUNT STOPKEY                            |                      |       |       |            |          |        
+|   2 |   VIEW                                    |                      |     1 |  4115 |  3417   (1)| 00:00:01 |        
+|*  3 |    SORT ORDER BY STOPKEY                  |                      |     1 |  4929 |  3417   (1)| 00:00:01 |        
+|   4 |     NESTED LOOPS                          |                      |     1 |  4929 |  3416   (1)| 00:00:01 |        
+|*  5 |      HASH JOIN                            |                      |     1 |  4916 |  3413   (1)| 00:00:01 |        
+|   6 |       NESTED LOOPS                        |                      |   750 |  2257K|  2579   (1)| 00:00:01 |        
+|   7 |        TABLE ACCESS BY INDEX ROWID        | account              |   750 |   763K|   328   (0)| 00:00:01 |        
+|*  8 |         DOMAIN INDEX                      | IDX_ACCOUNT_SEARCH   |       |       |     4   (0)| 00:00:01 |        
+|   9 |        TABLE ACCESS BY INDEX ROWID BATCHED| identity             |     1 |  2040 |     3   (0)| 00:00:01 |        
+|* 10 |         INDEX RANGE SCAN                  | IDX_IDENTITY_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |        
+|  11 |       TABLE ACCESS BY INDEX ROWID         | phone                |  1250 |  2238K|   834   (0)| 00:00:01 |        
+|* 12 |        DOMAIN INDEX                       | IDX_PHONE_SEARCH     |       |       |     4   (0)| 00:00:01 |        
+|* 13 |      INDEX RANGE SCAN                     | IDX_ADDRESS_CUSTNUM  |     1 |       |     2   (0)| 00:00:01 |        
+------------------------------------------------------------------------------------------------------------------        
+                                                                                                                          
+Predicate Information (identified by operation id):                                                                       
+---------------------------------------------------                                                                       
+                                                                                                                          
+   1 - filter(ROWNUM<=10)                                                                                                 
+   3 - filter(ROWNUM<=10)                                                                                                 
+   5 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber' RETURNING                       
+              VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,               
+              '$.phoneKey.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                             
+   8 - access("CTXSYS"."CONTAINS"("account"."DATA" /*+ LOB_BY_VALUE */ ,'(5005) INPATH                                    
+              (/accountKey/accountNumberLast4)',2)>0)                                                                     
+  10 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$.accountHolders[0].customerNumber'                   
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,     
+              '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                                  
+  12 - access("CTXSYS"."CONTAINS"("phone"."DATA" /*+ LOB_BY_VALUE */ ,'(5549414620) INPATH                                
+              (/phoneKey/phoneNumber)',1)>0)                                                                              
+  13 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber' RETURNING                       
+              VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,               
+              '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                                  
+
+39 rows selected. 
+
+================================================================================
+UC-4: Account Number + SSN Last 4
+accountNumber=100000375005, ssnLast4=1007
+================================================================================
+
+Explained.
+
+
+PLAN_TABLE_OUTPUT                                                                                           
+___________________________________________________________________________________________________________ 
+Plan hash value: 498709196                                                                                  
+                                                                                                            
+--------------------------------------------------------------------------------------------------------    
+| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |    
+--------------------------------------------------------------------------------------------------------    
+|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |   675   (1)| 00:00:01 |    
+|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |    
+|   2 |   VIEW                           |                     |     1 |  4115 |   675   (1)| 00:00:01 |    
+|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3107 |   675   (1)| 00:00:01 |    
+|   4 |     NESTED LOOPS                 |                     |     1 |  3107 |   674   (1)| 00:00:01 |    
+|*  5 |      HASH JOIN                   |                     |     1 |  3094 |   671   (1)| 00:00:01 |    
+|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |    
+|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |    
+|   8 |       TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|   328   (0)| 00:00:01 |    
+|*  9 |        DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |    
+|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |    
+--------------------------------------------------------------------------------------------------------    
+                                                                                                            
+Predicate Information (identified by operation id):                                                         
+---------------------------------------------------                                                         
+                                                                                                            
+   1 - filter(ROWNUM<=10)                                                                                   
+   3 - filter(ROWNUM<=10)                                                                                   
+   5 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,                                          
+              '$.accountHolders[0].customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX)         
+              )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber' RETURNING       
+              VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                                                     
+   7 - access("CTXSYS"."CONTAINS"("identity"."DATA" /*+ LOB_BY_VALUE */ ,'(%1007) INPATH                    
+              (/common/taxIdentificationNumber)',2)>0)                                                      
+   9 - access("CTXSYS"."CONTAINS"("account"."DATA" /*+ LOB_BY_VALUE */ ,'(100000375005) INPATH              
+              (/accountKey/accountNumber)',1)>0)                                                            
+  10 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                   
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */      
+              FORMAT OSON , '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))      
+
+34 rows selected. 
+
+================================================================================
+UC-5: City/State/ZIP + SSN Last 4 + Account Last 4
+city=South Wilbertfurt, state=CA, zip=54717, ssnLast4=1007, accountLast4=5005
+================================================================================
+
+Explained.
+
+
+PLAN_TABLE_OUTPUT                                                                                                         
+_________________________________________________________________________________________________________________________ 
+Plan hash value: 834304200                                                                                                
+                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------         
+| Id  | Operation                                | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |         
+-----------------------------------------------------------------------------------------------------------------         
+|   0 | SELECT STATEMENT                         |                      |     1 |  4115 |   353   (2)| 00:00:01 |         
+|*  1 |  COUNT STOPKEY                           |                      |       |       |            |          |         
+|   2 |   VIEW                                   |                      |     1 |  4115 |   353   (2)| 00:00:01 |         
+|*  3 |    SORT ORDER BY STOPKEY                 |                      |     1 |  4667 |   353   (2)| 00:00:01 |         
+|   4 |     NESTED LOOPS                         |                      |     1 |  4667 |   352   (2)| 00:00:01 |         
+|   5 |      MERGE JOIN CARTESIAN                |                      |     1 |  2615 |   348   (2)| 00:00:01 |         
+|*  6 |       TABLE ACCESS BY INDEX ROWID BATCHED| address              |     1 |  1573 |    10  (20)| 00:00:01 |         
+|   7 |        BITMAP CONVERSION TO ROWIDS       |                      |       |       |            |          |         
+|   8 |         BITMAP AND                       |                      |       |       |            |          |         
+|   9 |          BITMAP CONVERSION FROM ROWIDS   |                      |       |       |            |          |         
+|  10 |           SORT ORDER BY                  |                      |       |       |            |          |         
+|* 11 |            DOMAIN INDEX                  | IDX_ADDRESS_SEARCH   |       |       |     4   (0)| 00:00:01 |         
+|  12 |          BITMAP CONVERSION FROM ROWIDS   |                      |       |       |            |          |         
+|  13 |           SORT ORDER BY                  |                      |       |       |            |          |         
+|* 14 |            DOMAIN INDEX                  | IDX_ADDRESS_SEARCH   |       |       |     4   (0)| 00:00:01 |         
+|  15 |       BUFFER SORT                        |                      |   750 |   763K|   338   (1)| 00:00:01 |         
+|  16 |        TABLE ACCESS BY INDEX ROWID       | account              |   750 |   763K|   348   (2)| 00:00:01 |         
+|* 17 |         DOMAIN INDEX                     | IDX_ACCOUNT_SEARCH   |       |       |     4   (0)| 00:00:01 |         
+|* 18 |      TABLE ACCESS BY INDEX ROWID BATCHED | identity             |     1 |  2052 |     3   (0)| 00:00:01 |         
+|* 19 |       INDEX RANGE SCAN                   | IDX_IDENTITY_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |         
+-----------------------------------------------------------------------------------------------------------------         
+                                                                                                                          
+Predicate Information (identified by operation id):                                                                       
+---------------------------------------------------                                                                       
+                                                                                                                          
+   1 - filter(ROWNUM<=10)                                                                                                 
+   3 - filter(ROWNUM<=10)                                                                                                 
+   6 - filter(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$.addresses.stateCode' RETURNING                      
+              VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )='CA' AND JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,      
+              '$.addresses.postalCode' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )='54717' AND                     
+              "CTXSYS"."CONTAINS"("address"."DATA" /*+ LOB_BY_VALUE */ ,'(South Wilbertfurt) INPATH                       
+              (/addresses/cityName)',1)>0)                                                                                
+  11 - access("CTXSYS"."CONTAINS"("address"."DATA" /*+ LOB_BY_VALUE */ ,'{54717} INPATH                                   
+              (/addresses/postalCode)')>0)                                                                                
+  14 - access("CTXSYS"."CONTAINS"("address"."DATA" /*+ LOB_BY_VALUE */ ,'{CA} INPATH                                      
+              (/addresses/stateCode)')>0)                                                                                 
+  17 - access("CTXSYS"."CONTAINS"("account"."DATA" /*+ LOB_BY_VALUE */ ,'(5005) INPATH                                    
+              (/accountKey/accountNumberLast4)',3)>0)                                                                     
+  18 - filter("CTXSYS"."CONTAINS"("identity"."DATA" /*+ LOB_BY_VALUE */ ,'(%1007) INPATH                                  
+              (/common/taxIdentificationNumber)',2)>0)                                                                    
+  19 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber' RETURNING                       
+              VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,               
+              '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                                  
+       filter(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$.accountHolders[0].customerNumber'                   
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,     
+              '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                                  
+                                                                                                                          
+SQL Analysis Report (identified by operation id/Query Block Name/Object Alias):                                           
+-------------------------------------------------------------------------------                                           
+                                                                                                                          
+   3 -  SEL$55AC2236                                                                                                      
+           -  The query block has 1 cartesian product which may be                                                        
+              expensive. Consider adding join conditions or removing the                                                  
+              disconnected tables or views.                                                                               
+
+59 rows selected. 
+
+================================================================================
+UC-6: Email + Account Last 4
+email=ashields, accountLast4=5005
+================================================================================
+
+Explained.
+
+
+PLAN_TABLE_OUTPUT                                                                                           
+___________________________________________________________________________________________________________ 
+Plan hash value: 498709196                                                                                  
+                                                                                                            
+--------------------------------------------------------------------------------------------------------    
+| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |    
+--------------------------------------------------------------------------------------------------------    
+|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |   675   (1)| 00:00:01 |    
+|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |    
+|   2 |   VIEW                           |                     |     1 |  4115 |   675   (1)| 00:00:01 |    
+|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3107 |   675   (1)| 00:00:01 |    
+|   4 |     NESTED LOOPS                 |                     |     1 |  3107 |   674   (1)| 00:00:01 |    
+|*  5 |      HASH JOIN                   |                     |     1 |  3094 |   671   (1)| 00:00:01 |    
+|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |    
+|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |    
+|   8 |       TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|   328   (0)| 00:00:01 |    
+|*  9 |        DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |    
+|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |    
+--------------------------------------------------------------------------------------------------------    
+                                                                                                            
+Predicate Information (identified by operation id):                                                         
+---------------------------------------------------                                                         
+                                                                                                            
+   1 - filter(ROWNUM<=10)                                                                                   
+   3 - filter(ROWNUM<=10)                                                                                   
+   5 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                   
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */      
+              FORMAT OSON , '$.accountHolders[0].customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR     
+              TYPE(LAX) ))                                                                                  
+   7 - access("CTXSYS"."CONTAINS"("identity"."DATA" /*+ LOB_BY_VALUE */ ,'(ashields) INPATH                 
+              (/emails/emailAddress)',2)>0)                                                                 
+   9 - access("CTXSYS"."CONTAINS"("account"."DATA" /*+ LOB_BY_VALUE */ ,'(5005) INPATH                      
+              (/accountKey/accountNumberLast4)',1)>0)                                                       
+  10 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                   
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */      
+              FORMAT OSON , '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))      
+
+34 rows selected. 
+
+================================================================================
+UC-7: Email + Phone + Account Number
+email=ashields, phone=5549414620, accountNumber=100000375005
+================================================================================
+
+Explained.
+
+
+PLAN_TABLE_OUTPUT                                                                                                  
+__________________________________________________________________________________________________________________ 
+Plan hash value: 1906825944                                                                                        
+                                                                                                                   
+---------------------------------------------------------------------------------------------------------          
+| Id  | Operation                         | Name                | Rows  | Bytes | Cost (%CPU)| Time     |          
+---------------------------------------------------------------------------------------------------------          
+|   0 | SELECT STATEMENT                  |                     |     1 |  4115 |  1509   (1)| 00:00:01 |          
+|*  1 |  COUNT STOPKEY                    |                     |       |       |            |          |          
+|   2 |   VIEW                            |                     |     1 |  4115 |  1509   (1)| 00:00:01 |          
+|*  3 |    SORT ORDER BY STOPKEY          |                     |     1 |  4941 |  1509   (1)| 00:00:01 |          
+|   4 |     NESTED LOOPS                  |                     |     1 |  4941 |  1508   (0)| 00:00:01 |          
+|*  5 |      HASH JOIN                    |                     |     1 |  4928 |  1505   (0)| 00:00:01 |          
+|*  6 |       HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |          
+|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |          
+|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |          
+|   9 |        TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |          
+|* 10 |         DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |          
+|  11 |       TABLE ACCESS BY INDEX ROWID | account             |   750 |   763K|   328   (0)| 00:00:01 |          
+|* 12 |        DOMAIN INDEX               | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |          
+|* 13 |      INDEX RANGE SCAN             | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |          
+---------------------------------------------------------------------------------------------------------          
+                                                                                                                   
+Predicate Information (identified by operation id):                                                                
+---------------------------------------------------                                                                
+                                                                                                                   
+   1 - filter(ROWNUM<=10)                                                                                          
+   3 - filter(ROWNUM<=10)                                                                                          
+   5 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON ,                                                 
+              '$.accountHolders[0].customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX)                
+              )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber' RETURNING              
+              VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                                                            
+   6 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$.phoneKey.customerNumber'                     
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT     
+              OSON , '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                    
+   8 - access("CTXSYS"."CONTAINS"("identity"."DATA" /*+ LOB_BY_VALUE */ ,'(ashields) INPATH                        
+              (/emails/emailAddress)',1)>0)                                                                        
+  10 - access("CTXSYS"."CONTAINS"("phone"."DATA" /*+ LOB_BY_VALUE */ ,'(5549414620) INPATH                         
+              (/phoneKey/phoneNumber)',2)>0)                                                                       
+  12 - access("CTXSYS"."CONTAINS"("account"."DATA" /*+ LOB_BY_VALUE */ ,'(100000375005) INPATH                     
+              (/accountKey/accountNumber)',3)>0)                                                                   
+  13 - access(JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT OSON , '$._id.customerNumber'                          
+              RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) )=JSON_VALUE("DATA" /*+ LOB_BY_VALUE */  FORMAT     
+              OSON , '$._id.customerNumber' RETURNING VARCHAR2(4000) NULL ON ERROR TYPE(LAX) ))                    
+
+42 rows selected. 
+

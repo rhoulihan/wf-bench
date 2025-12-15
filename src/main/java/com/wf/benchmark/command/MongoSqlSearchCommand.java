@@ -8,6 +8,11 @@ import org.HdrHistogram.Histogram;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import org.bson.Document;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -305,14 +310,35 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
         System.out.println("╚══════════════════════════════════════════════════════════════════╝");
         System.out.println();
 
-        // Generate sample test data (or load from file if provided)
-        List<String[]> uc1Params = generateUC1Params();
-        List<String[]> uc2Params = generateUC2Params();
-        List<String[]> uc3Params = generateUC3Params();
-        List<String[]> uc4Params = generateUC4Params();
-        List<String[]> uc5Params = generateUC5Params();
-        List<String[]> uc6Params = generateUC6Params();
-        List<String[]> uc7Params = generateUC7Params();
+        // Load sample test data from file or generate random
+        List<String[]> uc1Params;
+        List<String[]> uc2Params;
+        List<String[]> uc3Params;
+        List<String[]> uc4Params;
+        List<String[]> uc5Params;
+        List<String[]> uc6Params;
+        List<String[]> uc7Params;
+
+        if (sampleDataFile != null && !sampleDataFile.isEmpty()) {
+            try {
+                Document sampleData = loadSampleData(sampleDataFile);
+                System.out.printf("Loaded sample data from: %s%n", sampleDataFile);
+
+                uc1Params = loadUcParams(sampleData, "uc1", "phone", "ssnLast4");
+                uc2Params = loadUcParams(sampleData, "uc2", "phone", "ssnLast4", "accountLast4");
+                uc3Params = loadUcParams(sampleData, "uc3", "phone", "accountLast4");
+                uc4Params = loadUcParams(sampleData, "uc4", "accountNumber", "ssnLast4");
+                uc5Params = loadUcParams(sampleData, "uc5", "city", "state", "zip", "ssnLast4", "accountLast4");
+                uc6Params = loadUcParams(sampleData, "uc6", "email", "accountLast4");
+                uc7Params = loadUcParams(sampleData, "uc7", "email", "phone", "accountNumber");
+            } catch (IOException e) {
+                System.err.println("Failed to load sample data file: " + e.getMessage());
+                return 1;
+            }
+        } else {
+            System.out.println("No sample data file provided. Use --sample-data-file to specify one.");
+            return 1;
+        }
 
         System.out.printf("Benchmark configuration:%n");
         System.out.printf("  Iterations: %d%n", iterations);
@@ -401,7 +427,45 @@ public class MongoSqlSearchCommand implements Callable<Integer> {
         List<UcSearchResult> execute(String[] params);
     }
 
-    // ==================== Sample Data Generation ====================
+    // ==================== Sample Data Loading ====================
+
+    private Document loadSampleData(String filePath) throws IOException {
+        String json = Files.readString(Path.of(filePath));
+        return Document.parse(json);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String[]> loadUcParams(Document sampleData, String ucKey, String... fields) {
+        List<String[]> params = new ArrayList<>();
+
+        Document ucTestCases = sampleData.get("ucTestCases", Document.class);
+        if (ucTestCases == null) {
+            throw new IllegalArgumentException("Sample data missing 'ucTestCases' field");
+        }
+
+        Document ucData = ucTestCases.get(ucKey, Document.class);
+        if (ucData == null) {
+            throw new IllegalArgumentException("Sample data missing '" + ucKey + "' field");
+        }
+
+        List<Document> testCases = ucData.getList("testCases", Document.class);
+        if (testCases == null || testCases.isEmpty()) {
+            throw new IllegalArgumentException("No test cases found for " + ucKey);
+        }
+
+        for (Document testCase : testCases) {
+            String[] values = new String[fields.length];
+            for (int i = 0; i < fields.length; i++) {
+                Object value = testCase.get(fields[i]);
+                values[i] = value != null ? value.toString() : "";
+            }
+            params.add(values);
+        }
+
+        return params;
+    }
+
+    // ==================== Sample Data Generation (unused) ====================
 
     private List<String[]> generateUC1Params() {
         // Phone + SSN Last 4
