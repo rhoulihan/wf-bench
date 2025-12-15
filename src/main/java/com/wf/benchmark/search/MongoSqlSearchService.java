@@ -443,9 +443,12 @@ public class MongoSqlSearchService {
      * Builds the SQL query for UC-5: City/State/ZIP + SSN Last 4 + Account Last 4.
      * Fuzzy matching on city, SSN last 4, and account last 4, combined score.
      * Uses $.addresses.cityName (without array index) for json_textcontains - matches any element.
-     * Uses dot notation with [0] array index for address fields in WHERE and SELECT.
+     * Uses json_exists with filter expression for state/zip array access.
      * SSN last 4 and account last 4 use ends-with pattern (%term) to anchor at end of string.
      * Uses dot notation for JOINs and SELECT per Oracle team guidance.
+     *
+     * <p>Per Josh Spiegel (Oracle): Use json_exists with filter expression for array access:
+     * {@code json_exists(a.data, '$.path[0]?(@.field == $b1)' passing 'value' as "b1")}
      */
     public String buildUC5Query(String city, String state, String zip, String ssnLast4, String accountLast4, int limit) {
         String addressColl = collectionPrefix + "address";
@@ -456,10 +459,9 @@ public class MongoSqlSearchService {
             WITH
             addresses AS (
               SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
-              FROM "%s"
+              FROM "%s" a
               WHERE json_textcontains("DATA", '$."addresses"."cityName"', '%s', 1)
-                AND JSON_VALUE("DATA", '$.addresses[0].stateCode') = '%s'
-                AND JSON_VALUE("DATA", '$.addresses[0].postalCode') = '%s'
+                AND json_exists(a.data, '$.addresses[0]?(@.stateCode == $b1 && @.postalCode == $b2)' passing '%s' as "b1", '%s' as "b2" error on error)
               ORDER BY score(1) DESC
             ),
             identities AS (

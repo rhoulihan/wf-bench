@@ -329,29 +329,30 @@ Per Oracle team guidance, the queries now use **dot notation** instead of `JSON_
 
 | UC | Description | Avg Latency | P95 | Throughput | Results | Status |
 |----|-------------|-------------|-----|------------|---------|--------|
-| UC-1 | Phone + SSN | **37.92 ms** | 38.85 ms | 26.4/s | 1 | ✓ OK |
-| UC-2 | Phone + SSN + Account | **40.72 ms** | 42.37 ms | 24.6/s | 1 | ✓ OK |
-| UC-3 | Phone + Account Last 4 | **8.10 ms** | 8.68 ms | 123.4/s | 1 | ✓ OK |
-| UC-4 | Account + SSN | **37.09 ms** | 37.79 ms | 27.0/s | 1 | ✓ OK |
-| UC-5 | City/State/ZIP + SSN + Account | **176.85 ms** | 180.99 ms | 5.7/s | 1 | ✓ OK |
-| UC-6 | Email + Account Last 4 | **7.91 ms** | 8.25 ms | 126.4/s | 1 | ✓ OK |
-| UC-7 | Email + Phone + Account | **9.25 ms** | 9.62 ms | 108.1/s | 1 | ✓ OK |
+| UC-1 | Phone + SSN | **37.62 ms** | 38.50 ms | 26.6/s | 1 | ✓ OK |
+| UC-2 | Phone + SSN + Account | **40.77 ms** | 42.10 ms | 24.5/s | 1 | ✓ OK |
+| UC-3 | Phone + Account Last 4 | **8.12 ms** | 8.70 ms | 123.1/s | 1 | ✓ OK |
+| UC-4 | Account + SSN | **36.19 ms** | 37.50 ms | 27.6/s | 1 | ✓ OK |
+| UC-5 | City/State/ZIP + SSN + Account | **41.45 ms** | 43.20 ms | 24.1/s | 1 | ✓ OK |
+| UC-6 | Email + Account Last 4 | **7.93 ms** | 8.30 ms | 126.1/s | 1 | ✓ OK |
+| UC-7 | Email + Phone + Account | **9.46 ms** | 9.80 ms | 105.7/s | 1 | ✓ OK |
 
-### Performance Improvements (Wildcard Index vs Previous)
+### Performance Improvements (Wildcard Index + json_exists)
 
 | UC | Before (ms) | After (ms) | Improvement |
 |----|-------------|------------|-------------|
-| UC-1 | 763 | 37.92 | **20x faster** |
-| UC-2 | 764 | 40.72 | **19x faster** |
-| UC-3 | 8.56 | 8.10 | 1.1x faster |
-| UC-4 | 763 | 37.09 | **21x faster** |
-| UC-5 | 903 | 176.85 | **5x faster** |
-| UC-6 | 8.75 | 7.91 | 1.1x faster |
-| UC-7 | 9.74 | 9.25 | 1.1x faster |
+| UC-1 | 763 | 37.62 | **20x faster** |
+| UC-2 | 764 | 40.77 | **19x faster** |
+| UC-3 | 8.56 | 8.12 | 1.1x faster |
+| UC-4 | 763 | 36.19 | **21x faster** |
+| UC-5 | 903 | 41.45 | **22x faster** |
+| UC-6 | 8.75 | 7.93 | 1.1x faster |
+| UC-7 | 9.74 | 9.46 | 1.0x (same) |
 
 **Performance Notes:**
-- **Wildcard Index (K=4):** Dramatic improvement for `%term` pattern searches (UC-1, UC-2, UC-4, UC-5)
+- **Wildcard Index (K=4):** Dramatic improvement for `%term` pattern searches (UC-1, UC-2, UC-4)
 - **20x improvement** on SSN last-4 searches due to k-gram index optimization
+- **UC-5 json_exists:** Per Josh Spiegel (Oracle), using `json_exists` with filter expression for state/zip filtering improved UC-5 from 176ms to 41ms (4.3x additional improvement)
 - **UC-3, UC-6, UC-7:** Already fast with exact-match patterns, minimal change
 
 ### Sample Data (Customer 1000250004)
@@ -782,17 +783,17 @@ Predicate Information:
 
 ### UC-5: City/State/ZIP + SSN + Account Last 4
 
-**Note:** WHERE clause uses JSON_VALUE for array access (dot notation doesn't work in WHERE for arrays).
+**Note:** Per Josh Spiegel (Oracle), use `json_exists` with filter expression for array access:
+`json_exists(a.data, '$.path[0]?(@.field == $b1)' passing 'value' as "b1")`
 
 ```javascript
 db.aggregate([{"$sql": `
 WITH
 addresses AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
-  FROM "address"
+  FROM "address" a
   WHERE json_textcontains("DATA", '$."addresses"."cityName"', 'South Wilbertfurt', 1)
-    AND JSON_VALUE("DATA", '$.addresses[0].stateCode') = 'CA'
-    AND JSON_VALUE("DATA", '$.addresses[0].postalCode') = '54717'
+    AND json_exists(a.data, '$.addresses[0]?(@.stateCode == $b1 && @.postalCode == $b2)' passing 'CA' as "b1", '54717' as "b2" error on error)
   ORDER BY score(1) DESC
 ),
 identities AS (
@@ -842,44 +843,35 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 15, 2025 - Dot Notation):**
+**Query Plan (December 15, 2025 - json_exists):**
 ```
------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |
------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                         |                      |     1 |  4115 |   353   (2)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                           |                      |       |       |            |          |
-|   2 |   VIEW                                   |                      |     1 |  4115 |   353   (2)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY                 |                      |     1 |  4667 |   353   (2)| 00:00:01 |
-|   4 |     NESTED LOOPS                         |                      |     1 |  4667 |   352   (2)| 00:00:01 |
-|   5 |      MERGE JOIN CARTESIAN                |                      |     1 |  2615 |   348   (2)| 00:00:01 |
-|*  6 |       TABLE ACCESS BY INDEX ROWID BATCHED| address              |     1 |  1573 |    10  (20)| 00:00:01 |
-|   7 |        BITMAP CONVERSION TO ROWIDS       |                      |       |       |            |          |
-|   8 |         BITMAP AND                       |                      |       |       |            |          |
-|   9 |          BITMAP CONVERSION FROM ROWIDS   |                      |       |       |            |          |
-|  10 |           SORT ORDER BY                  |                      |       |       |            |          |
-|* 11 |            DOMAIN INDEX                  | IDX_ADDRESS_SEARCH   |       |       |     4   (0)| 00:00:01 |
-|  12 |          BITMAP CONVERSION FROM ROWIDS   |                      |       |       |            |          |
-|  13 |           SORT ORDER BY                  |                      |       |       |            |          |
-|* 14 |            DOMAIN INDEX                  | IDX_ADDRESS_SEARCH   |       |       |     4   (0)| 00:00:01 |
-|  15 |       BUFFER SORT                        |                      |   750 |   763K|   338   (1)| 00:00:01 |
-|  16 |        TABLE ACCESS BY INDEX ROWID       | account              |   750 |   763K|   348   (2)| 00:00:01 |
-|* 17 |         DOMAIN INDEX                     | IDX_ACCOUNT_SEARCH   |       |       |     4   (0)| 00:00:01 |
-|* 18 |      TABLE ACCESS BY INDEX ROWID BATCHED | identity             |     1 |  2052 |     3   (0)| 00:00:01 |
-|* 19 |       INDEX RANGE SCAN                   | IDX_IDENTITY_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                                 | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |
+------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                          |                      |     1 |  4115 |  1008   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                            |                      |       |       |            |          |
+|   2 |   VIEW                                    |                      |     1 |  4115 |  1008   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY                  |                      |     1 |  4667 |  1008   (1)| 00:00:01 |
+|   4 |     NESTED LOOPS                          |                      |     1 |  4667 |  1007   (1)| 00:00:01 |
+|*  5 |      HASH JOIN                            |                      |     1 |  2615 |  1004   (1)| 00:00:01 |
+|*  6 |       TABLE ACCESS BY INDEX ROWID BATCHED | address              |   500 |   769K|   676   (1)| 00:00:01 |
+|*  7 |        DOMAIN INDEX                       | IDX_ADDRESS_SEARCH   |       |       |     4   (0)| 00:00:01 |
+|   8 |       TABLE ACCESS BY INDEX ROWID         | account              |   750 |   763K|   328   (0)| 00:00:01 |
+|*  9 |        DOMAIN INDEX                       | IDX_ACCOUNT_SEARCH   |       |       |     4   (0)| 00:00:01 |
+|* 10 |      TABLE ACCESS BY INDEX ROWID BATCHED  | identity             |     1 |  2052 |     3   (0)| 00:00:01 |
+|* 11 |       INDEX RANGE SCAN                    | IDX_IDENTITY_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
+------------------------------------------------------------------------------------------------------------------
 
 Predicate Information:
-   6 - filter(JSON_VALUE("DATA",'$.addresses.stateCode')='CA' AND JSON_VALUE("DATA",'$.addresses.postalCode')='54717'
-              AND "CTXSYS"."CONTAINS"("address"."DATA",'(South Wilbertfurt) INPATH (/addresses/cityName)',1)>0)
-  11 - access("CTXSYS"."CONTAINS"("address"."DATA",'{54717} INPATH (/addresses/postalCode)')>0)
-  14 - access("CTXSYS"."CONTAINS"("address"."DATA",'{CA} INPATH (/addresses/stateCode)')>0)
-  17 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',3)>0)
-  18 - filter("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
-  19 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-       filter(JSON_VALUE(ac."DATA",'$.accountHolders[0].customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
+   5 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(ac."DATA",'$.accountKey.customerNumber'))
+   6 - filter(JSON_EXISTS2("A"."DATA", '$.addresses[0]?(@.stateCode == $b1 &&@.postalCode == $b2)'
+              PASSING 'CA' AS "b1", '54717' AS "b2" FALSE ON ERROR NULL ON EMPTY))
+   7 - access("CTXSYS"."CONTAINS"("address"."DATA",'(South Wilbertfurt) INPATH (/addresses/cityName)',1)>0)
+   9 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',3)>0)
+  10 - filter("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
+  11 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
 
-Note: UC-5 uses BITMAP AND on address index for efficient city/state/zip filtering
+Note: UC-5 uses json_exists filter for efficient state/zip array access (per Josh Spiegel, Oracle)
 ```
 
 ---

@@ -176,19 +176,18 @@ FETCH FIRST 10 ROWS ONLY;
 SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
 
 PROMPT ================================================================================
-PROMPT UC-5: City/State/ZIP + SSN Last 4 + Account Last 4 (DOT NOTATION)
+PROMPT UC-5: City/State/ZIP + SSN Last 4 + Account Last 4 (JSON_EXISTS)
 PROMPT city=South Wilbertfurt, state=CA, zip=54717, ssnLast4=1007, accountLast4=5005
-PROMPT Note: WHERE clause uses JSON_VALUE for array access (dot notation doesn't work in WHERE)
+PROMPT Note: Per Josh Spiegel - use json_exists with filter for array access
 PROMPT ================================================================================
 
 EXPLAIN PLAN FOR
 WITH
 addresses AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
-  FROM "address"
+  FROM "address" a
   WHERE json_textcontains("DATA", '$."addresses"."cityName"', 'South Wilbertfurt', 1)
-    AND JSON_VALUE("DATA", '$.addresses[0].stateCode') = 'CA'
-    AND JSON_VALUE("DATA", '$.addresses[0].postalCode') = '54717'
+    AND json_exists(a.data, '$.addresses[0]?(@.stateCode == $b1 && @.postalCode == $b2)' passing 'CA' as "b1", '54717' as "b2" error on error)
   ORDER BY score(1) DESC
 ),
 identities AS (
