@@ -337,7 +337,8 @@ SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
 
 PROMPT ================================================================================
 PROMPT UC-9: Account Number + Optional Filters (DIRECT JOIN)
-PROMPT accountNumber=100000375005
+PROMPT accountNumber=100000375005, productType=BROKERAGE (optional)
+PROMPT Note: Use JSON_VALUE(...error on error) for optional filters - 6x faster
 PROMPT ================================================================================
 
 EXPLAIN PLAN FOR
@@ -349,6 +350,7 @@ FROM "account" ac
 JOIN "identity" i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 JOIN "address" a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumber"', '100000375005')
+  AND JSON_VALUE(ac."DATA", '$.productTypeCode' error on error) = 'BROKERAGE'
 FETCH FIRST 10 ROWS ONLY;
 
 SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
@@ -356,6 +358,7 @@ SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
 PROMPT ================================================================================
 PROMPT UC-10: Tokenized Account (Hyphenated) (DOT NOTATION)
 PROMPT accountNumberHyphenated=1000-0037-5005
+PROMPT Note: Escape hyphens with backslash to prevent tokenization - 8x faster
 PROMPT ================================================================================
 
 EXPLAIN PLAN FOR
@@ -363,7 +366,7 @@ WITH
 accounts AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA"
   FROM "account" ac
-  WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumberHyphenated"', '1000-0037-5005')
+  WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumberHyphenated"', '1000\-0037\-5005')
 ),
 identities AS (
   SELECT "DATA"

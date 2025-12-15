@@ -774,15 +774,15 @@ public class MongoSqlSearchService {
         String identity = collectionPrefix + "identity";
         String address = collectionPrefix + "address";
 
-        // Build optional filter conditions
+        // Build optional filter conditions using JSON_VALUE with ERROR ON ERROR for better performance
         StringBuilder accountFilters = new StringBuilder();
         if (productType != null && !productType.isBlank()) {
             accountFilters.append(String.format(
-                "\n    AND ac.\"DATA\".\"productTypeCode\".string() = '%s'", escapeSql(productType)));
+                "\n    AND JSON_VALUE(ac.\"DATA\", '$.productTypeCode' error on error) = '%s'", escapeSql(productType)));
         }
         if (coid != null && !coid.isBlank()) {
             accountFilters.append(String.format(
-                "\n    AND ac.\"DATA\".\"companyOfInterestId\".string() = '%s'", escapeSql(coid)));
+                "\n    AND JSON_VALUE(ac.\"DATA\", '$.companyOfInterestId' error on error) = '%s'", escapeSql(coid)));
         }
 
         // Direct JOIN approach - avoid full table CTEs
@@ -831,7 +831,10 @@ public class MongoSqlSearchService {
         // Normalize input to hyphenated format if not already
         String hyphenatedAccount = normalizeToHyphenated(tokenizedAccount);
 
-        // Use text search on tokenized/hyphenated account number
+        // Escape hyphens with backslash to prevent text search tokenization
+        String escapedAccount = hyphenatedAccount.replace("-", "\\-");
+
+        // Use text search on tokenized/hyphenated account number with escaped hyphens
         return """
             WITH
             accounts AS (
@@ -880,7 +883,7 @@ public class MongoSqlSearchService {
             }
             FROM joined j
             FETCH FIRST %d ROWS ONLY
-            """.formatted(account, escapeSql(hyphenatedAccount), identity, address, limit);
+            """.formatted(account, escapedAccount, identity, address, limit);
     }
 
     /**

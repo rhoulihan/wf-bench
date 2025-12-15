@@ -19,14 +19,14 @@
 This document presents benchmark results for the UC 1-11 unified customer search implementation using Oracle Autonomous Database 23ai with MongoDB API compatibility. The solution leverages the `$sql` aggregation operator with `json_textcontains()` for fuzzy text matching across multiple JSON document collections.
 
 **Key Results:**
-- 9 of 11 use cases execute in under 50ms average latency
+- All 11 use cases execute in under 55ms average latency
 - Queries perform cross-collection JOINs on 6 million documents
 - Fuzzy matching with relevance scoring on all search conditions
 - Results ranked by combined relevance score
 
-**Use Cases Requiring Optimization (for Oracle Team Review):**
-- UC-9 (Account + Filters): 325ms - text search on full account number with JOINs
-- UC-10 (Tokenized Account): 456ms - text search tokenizes hyphenated format, returns multiple matches
+**Key Optimizations Applied:**
+- UC-9: Use `JSON_VALUE(...error on error)` for optional filters instead of dot notation
+- UC-10: Escape hyphens with backslash (`\-`) to prevent text search tokenization
 
 ---
 
@@ -176,7 +176,7 @@ Search for customers by full account number with optional product type and compa
 | **Collections** | account, identity, address |
 | **Search Fields** | Account number, Product type (optional), Company ID (optional) |
 | **Score** | Text search score |
-| **Note** | ⚠️ Performance needs optimization - 325ms average |
+| **Optimization** | Uses `JSON_VALUE(...error on error)` for optional filters |
 
 ### UC-10: Tokenized Account (Hyphenated)
 Search for customers by tokenized/hyphenated account number (XXXX-XXXX-XXXX format).
@@ -186,7 +186,7 @@ Search for customers by tokenized/hyphenated account number (XXXX-XXXX-XXXX form
 | **Collections** | account, identity, address |
 | **Search Fields** | Account number in hyphenated format |
 | **Score** | Text search score |
-| **Note** | ⚠️ Text search tokenizes hyphenated format, returns multiple matches - needs optimization |
+| **Optimization** | Escape hyphens with `\-` to prevent tokenization |
 
 ### UC-11: Phone (Full 10-digit)
 Search for customers by full 10-digit phone number.
@@ -205,17 +205,17 @@ Search for customers by full 10-digit phone number.
 
 | UC | Description | Avg Latency | P95 Latency | Throughput | Results | Status |
 |----|-------------|-------------|-------------|------------|---------|--------|
-| UC-1 | Phone + SSN Last 4 | **39.19 ms** | 42.72 ms | 25.5 qps | 1 | ✅ OK |
-| UC-2 | Phone + SSN + Account Last 4 | **41.89 ms** | 44.00 ms | 23.9 qps | 1 | ✅ OK |
-| UC-3 | Phone + Account Last 4 | **7.89 ms** | 8.57 ms | 126.7 qps | 1 | ✅ OK |
-| UC-4 | Account + SSN Last 4 | **37.41 ms** | 42.24 ms | 26.7 qps | 1 | ✅ OK |
-| UC-5 | City/State/ZIP + SSN + Account | **42.13 ms** | 46.75 ms | 23.7 qps | 1 | ✅ OK |
-| UC-6 | Email + Account Last 4 | **8.02 ms** | 9.54 ms | 124.7 qps | 1 | ✅ OK |
-| UC-7 | Email + Phone + Account | **10.58 ms** | 14.69 ms | 94.5 qps | 1 | ✅ OK |
-| UC-8 | TIN (Full 9-digit) | **5.09 ms** | 5.61 ms | 196.4 qps | 1 | ✅ OK |
-| UC-9 | Account + Optional Filters | **325.41 ms** | 603.65 ms | 3.1 qps | 1 | ⚠️ Needs Review |
-| UC-10 | Tokenized Account (Hyphenated) | **455.78 ms** | 521.22 ms | 2.2 qps | 10 | ⚠️ Needs Review |
-| UC-11 | Phone (Full 10-digit) | **3.81 ms** | 4.30 ms | 262.6 qps | 1 | ✅ OK |
+| UC-1 | Phone + SSN Last 4 | **41.87 ms** | 50.94 ms | 23.9 qps | 1 | ✅ OK |
+| UC-2 | Phone + SSN + Account Last 4 | **44.46 ms** | 49.66 ms | 22.5 qps | 1 | ✅ OK |
+| UC-3 | Phone + Account Last 4 | **8.67 ms** | 9.10 ms | 115.4 qps | 1 | ✅ OK |
+| UC-4 | Account + SSN Last 4 | **39.91 ms** | 42.50 ms | 25.1 qps | 1 | ✅ OK |
+| UC-5 | City/State/ZIP + SSN + Account | **44.92 ms** | 49.06 ms | 22.3 qps | 1 | ✅ OK |
+| UC-6 | Email + Account Last 4 | **9.20 ms** | 9.99 ms | 108.6 qps | 1 | ✅ OK |
+| UC-7 | Email + Phone + Account | **9.95 ms** | 10.16 ms | 100.5 qps | 1 | ✅ OK |
+| UC-8 | TIN (Full 9-digit) | **4.43 ms** | 5.08 ms | 225.5 qps | 1 | ✅ OK |
+| UC-9 | Account + Optional Filters | **53.06 ms** | 56.70 ms | 18.8 qps | 1 | ✅ OK |
+| UC-10 | Tokenized Account (Hyphenated) | **53.02 ms** | 56.42 ms | 18.9 qps | 1 | ✅ OK |
+| UC-11 | Phone (Full 10-digit) | **4.46 ms** | 5.22 ms | 224.0 qps | 1 | ✅ OK |
 
 ### Test Data Parameters
 
@@ -868,7 +868,7 @@ FETCH FIRST 10 ROWS ONLY
 
 ### UC-9: Account Number + Optional Filters
 
-**Note:** ⚠️ This query currently has performance issues (~325ms). Needs Oracle team review.
+**Optimization:** Use `JSON_VALUE(...error on error)` for optional filters - improved from 325ms to 53ms.
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -899,7 +899,7 @@ FROM "account" ac
 JOIN "identity" i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 JOIN "address" a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumber"', '100000375005')
-  AND ac."DATA"."productTypeCode".string() = 'BROKERAGE'  -- Optional filter
+  AND JSON_VALUE(ac."DATA", '$.productTypeCode' error on error) = 'BROKERAGE'  -- Optional filter
 FETCH FIRST 10 ROWS ONLY
 `}])
 ```
@@ -908,7 +908,7 @@ FETCH FIRST 10 ROWS ONLY
 
 ### UC-10: Tokenized Account (Hyphenated)
 
-**Note:** ⚠️ This query currently has performance issues (~456ms) and returns multiple matches due to text tokenization. Needs Oracle team review.
+**Optimization:** Escape hyphens with `\-` to prevent tokenization - improved from 456ms to 53ms and returns 1 result instead of 10.
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -916,7 +916,7 @@ WITH
 accounts AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA"
   FROM "account" ac
-  WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumberHyphenated"', '1000-0037-5005')
+  WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumberHyphenated"', '1000\-0037\-5005')
 ),
 identities AS (
   SELECT "DATA"
@@ -1274,7 +1274,7 @@ Predicate Information:
 
 ### UC-9: Account Number + Optional Filters
 
-**Note:** ⚠️ Performance needs Oracle team review (325ms average)
+**Optimized:** Using `JSON_VALUE(...error on error)` reduced latency from 325ms to 53ms.
 
 ```
 Plan hash value: 1651662844
@@ -1302,7 +1302,7 @@ Predicate Information:
 
 ### UC-10: Tokenized Account (Hyphenated)
 
-**Note:** ⚠️ Performance needs Oracle team review (456ms average) - text search tokenizes hyphenated format
+**Optimized:** Escaping hyphens with `\-` reduced latency from 456ms to 53ms and returns 1 exact match.
 
 ```
 Plan hash value: 4227112093
@@ -1368,6 +1368,6 @@ Predicate Information:
 | UC-6 | 2721229334 | HASH JOIN + NESTED LOOPS | IDX_IDENTITY_SEARCH, IDX_ACCOUNT_TEXT | TempSpc 14M |
 | UC-7 | 1678481105 | HASH JOIN | IDX_PHONE_SEARCH, IDX_IDENTITY_SEARCH, IDX_ACCOUNT_TEXT | TempSpc 366M |
 | UC-8 | 3979866288 | NESTED LOOPS only | IDX_IDENTITY_SEARCH | Very efficient |
-| UC-9 | 1651662844 | NESTED LOOPS | IDX_ACCOUNT_TEXT | STORAGE FULL FIRST ROWS |
-| UC-10 | 4227112093 | NESTED LOOPS | IDX_ACCOUNT_TEXT | STORAGE FULL FIRST ROWS |
+| UC-9 | 1651662844 | NESTED LOOPS | IDX_ACCOUNT_TEXT | Optimized with JSON_VALUE |
+| UC-10 | 4227112093 | NESTED LOOPS | IDX_ACCOUNT_TEXT | Optimized with escaped hyphens |
 | UC-11 | 2875705814 | HASH JOIN + BLOOM FILTER | IDX_PHONE_SEARCH | TempSpc 5008K |
