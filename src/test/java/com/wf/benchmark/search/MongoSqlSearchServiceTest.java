@@ -88,8 +88,9 @@ class MongoSqlSearchServiceTest {
             // When
             String sql = service.buildUC1Query("4155551234", "6789", 10);
 
-            // Then - should use json {...} output format
-            assertThat(sql).containsIgnoringCase("SELECT json");
+            // Then - should use json {...} output format (with MONITOR hint)
+            assertThat(sql).containsIgnoringCase("SELECT");
+            assertThat(sql).containsIgnoringCase("json {");
         }
 
         @Test
@@ -102,13 +103,13 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldBuildUC1QueryWithSsnLast4ExactMatch() {
+        void shouldBuildUC1QueryWithSsnLast4EndsWithPattern() {
             // When
             String sql = service.buildUC1Query("4155551234", "6789", 10);
 
-            // Then - SSN last 4 should be exact match (not text search)
-            assertThat(sql).contains("taxIdentificationNumberLast4");
-            assertThat(sql).contains("= '6789'");
+            // Then - SSN last 4 uses ends-with pattern (%term) for text search
+            assertThat(sql).contains("taxIdentificationNumber");
+            assertThat(sql).contains("%6789");  // ends-with pattern
         }
 
         @Test
@@ -121,12 +122,13 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldIncludeAddressLeftJoin() {
+        void shouldIncludeAddressJoin() {
             // When
             String sql = service.buildUC1Query("4155551234", "6789", 10);
 
-            // Then - address should be LEFT JOIN (customers may not have addresses)
-            assertThat(sql).containsIgnoringCase("LEFT JOIN addresses");
+            // Then - address should be joined for customer details
+            assertThat(sql).containsIgnoringCase("addresses AS");
+            assertThat(sql).containsIgnoringCase("JOIN addresses");
         }
     }
 
@@ -145,13 +147,14 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldBuildUC2QueryWithAccountLast4ExactMatch() {
+        void shouldBuildUC2QueryWithAccountLast4TextSearch() {
             // When
             String sql = service.buildUC2Query("4155551234", "6789", "1234", 10);
 
-            // Then - account last 4 should be exact match
+            // Then - account last 4 uses text search
             assertThat(sql).contains("accountNumberLast4");
-            assertThat(sql).contains("= '1234'");
+            assertThat(sql).contains("json_textcontains");
+            assertThat(sql).contains("1234");
         }
 
         @Test
@@ -176,7 +179,7 @@ class MongoSqlSearchServiceTest {
             assertThat(sql).contains("json_textcontains");
             assertThat(sql).contains("phoneNumber");
             assertThat(sql).contains("accountNumberLast4");
-            assertThat(sql).contains("= '5678'");
+            assertThat(sql).contains("5678");  // text search, not exact match
         }
 
         @Test
@@ -218,13 +221,13 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldBuildUC4QueryWithSsnExactMatch() {
+        void shouldBuildUC4QueryWithSsnEndsWithPattern() {
             // When
             String sql = service.buildUC4Query("9876543210", "6789", 10);
 
-            // Then
-            assertThat(sql).contains("taxIdentificationNumberLast4");
-            assertThat(sql).contains("= '6789'");
+            // Then - SSN last 4 uses ends-with pattern for text search
+            assertThat(sql).contains("taxIdentificationNumber");
+            assertThat(sql).contains("%6789");  // ends-with pattern
         }
     }
 
@@ -242,15 +245,16 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldBuildUC5QueryWithStateAndZipExactMatch() {
+        void shouldBuildUC5QueryWithStateAndZipJsonExists() {
             // When
             String sql = service.buildUC5Query("San Francisco", "CA", "94102", "6789", "1234", 10);
 
-            // Then - state and zip should be exact match
+            // Then - state and zip use json_exists filter
+            assertThat(sql).contains("json_exists");
             assertThat(sql).contains("stateCode");
-            assertThat(sql).contains("= 'CA'");
+            assertThat(sql).contains("CA");
             assertThat(sql).contains("postalCode");
-            assertThat(sql).contains("= '94102'");
+            assertThat(sql).contains("94102");
         }
 
         @Test
@@ -275,9 +279,9 @@ class MongoSqlSearchServiceTest {
             // When
             String sql = service.buildUC6Query("john@example.com", "1234", 10);
 
-            // Then - email should be text search on identity
+            // Then - email should be text search on identity.emails array
             assertThat(sql).contains("json_textcontains");
-            assertThat(sql).contains("primaryEmail");
+            assertThat(sql).contains("emailAddress");
         }
 
         @Test
@@ -291,13 +295,14 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldBuildUC6QueryWithAccountLast4ExactMatch() {
+        void shouldBuildUC6QueryWithAccountLast4TextSearch() {
             // When
             String sql = service.buildUC6Query("john@example.com", "1234", 10);
 
-            // Then
+            // Then - account last 4 uses text search
             assertThat(sql).contains("accountNumberLast4");
-            assertThat(sql).contains("= '1234'");
+            assertThat(sql).contains("json_textcontains");
+            assertThat(sql).contains("1234");
         }
     }
 
@@ -311,7 +316,7 @@ class MongoSqlSearchServiceTest {
 
             // Then - should have all three search criteria
             assertThat(sql).contains("json_textcontains");
-            assertThat(sql).contains("primaryEmail");
+            assertThat(sql).contains("emailAddress");  // emails array field
             assertThat(sql).contains("phoneNumber");
             assertThat(sql).contains("accountNumber");
         }
@@ -596,25 +601,348 @@ class MongoSqlSearchServiceTest {
         }
 
         @Test
-        void shouldUseJsonValueForNestedPaths() {
+        void shouldUseDotNotationForNestedPaths() {
             String sql = service.buildUC1Query("4155551234", "6789", 10);
-            // Should access nested fields via JSON_VALUE function
-            assertThat(sql).contains("JSON_VALUE(");
-            assertThat(sql).contains("$._id");
-            assertThat(sql).contains("$.common");
+            // Should access nested fields via dot notation
+            assertThat(sql).contains("identity_data");
+            assertThat(sql).contains("customerNumber");
         }
 
         @Test
-        void shouldUseArrayPathsWithoutIndex() {
+        void shouldUseAddressFieldAccess() {
             String sql = service.buildUC1Query("4155551234", "6789", 10);
-            // Should access address fields via $.addresses.fieldName (without array index)
-            // json_textcontains matches any element in array when no index is specified
-            assertThat(sql).contains("$.addresses.addressLine1");
-            assertThat(sql).contains("$.addresses.cityName");
-            assertThat(sql).contains("$.addresses.stateCode");
-            assertThat(sql).contains("$.addresses.postalCode");
-            // Should NOT use array index (fails with ORA-40469)
-            assertThat(sql).doesNotContain("addresses[0]");
+            // Should access address fields via dot notation
+            assertThat(sql).contains("address_data");
+            assertThat(sql).contains("addressLine1");
+            assertThat(sql).contains("cityName");
+            assertThat(sql).contains("stateCode");
+            assertThat(sql).contains("postalCode");
+        }
+    }
+
+    // ==================== UC 8-11 Tests (Other Searches) ====================
+
+    @Nested
+    class UC8QueryTests {
+        // UC-8: Search by TIN (full 9-digit)
+
+        @Test
+        void shouldBuildUC8QueryWithTinTextSearch() {
+            // When
+            String sql = service.buildUC8Query("855611007", 10);
+
+            // Then - TIN should be text search
+            assertThat(sql).contains("json_textcontains");
+            assertThat(sql).contains("taxIdentificationNumber");
+            assertThat(sql).contains("855611007");
+        }
+
+        @Test
+        void shouldBuildUC8QueryWithIdentityCTE() {
+            // When
+            String sql = service.buildUC8Query("855611007", 10);
+
+            // Then - should have identities CTE
+            assertThat(sql).containsIgnoringCase("identities AS");
+        }
+
+        @Test
+        void shouldBuildUC8QueryWithAddressJoin() {
+            // When
+            String sql = service.buildUC8Query("855611007", 10);
+
+            // Then - should join to addresses for customer details
+            assertThat(sql).containsIgnoringCase("addresses AS");
+            assertThat(sql).containsIgnoringCase("JOIN");
+        }
+
+        @Test
+        void shouldBuildUC8QueryWithJsonOutput() {
+            // When
+            String sql = service.buildUC8Query("855611007", 10);
+
+            // Then - should have JSON output format
+            assertThat(sql).containsIgnoringCase("SELECT");
+            assertThat(sql).containsIgnoringCase("json");
+            assertThat(sql).contains("'ecn'");
+            assertThat(sql).contains("'name'");
+        }
+
+        @Test
+        void shouldBuildUC8QueryWithRowLimit() {
+            // When
+            String sql = service.buildUC8Query("855611007", 25);
+
+            // Then
+            assertThat(sql).containsIgnoringCase("FETCH FIRST 25 ROWS ONLY");
+        }
+
+        @Test
+        void shouldValidateNullTin() {
+            assertThatThrownBy(() -> service.searchUC8(null, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("TIN");
+        }
+
+        @Test
+        void shouldValidateEmptyTin() {
+            assertThatThrownBy(() -> service.searchUC8("", 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("TIN");
+        }
+
+        @Test
+        void shouldValidateTinLength() {
+            assertThatThrownBy(() -> service.searchUC8("1234", 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("9 digits");
+        }
+    }
+
+    @Nested
+    class UC9QueryTests {
+        // UC-9: Search by Account Number (with optional product type and COID)
+
+        @Test
+        void shouldBuildUC9QueryWithAccountNumberOnly() {
+            // When
+            String sql = service.buildUC9Query("100000375005", null, null, 10);
+
+            // Then - account number should be text search
+            assertThat(sql).contains("json_textcontains");
+            assertThat(sql).contains("accountNumber");
+            assertThat(sql).contains("100000375005");
+        }
+
+        @Test
+        void shouldBuildUC9QueryWithProductTypeFilter() {
+            // When
+            String sql = service.buildUC9Query("100000375005", "CHECKING", null, 10);
+
+            // Then - should filter by productTypeCode
+            assertThat(sql).contains("productTypeCode");
+            assertThat(sql).contains("CHECKING");
+        }
+
+        @Test
+        void shouldBuildUC9QueryWithCoidFilter() {
+            // When
+            String sql = service.buildUC9Query("100000375005", null, "WF_MORTGAGE", 10);
+
+            // Then - should filter by companyOfInterestId
+            assertThat(sql).contains("companyOfInterestId");
+            assertThat(sql).contains("WF_MORTGAGE");
+        }
+
+        @Test
+        void shouldBuildUC9QueryWithBothFilters() {
+            // When
+            String sql = service.buildUC9Query("100000375005", "CHECKING", "WF_MORTGAGE", 10);
+
+            // Then - should have both filters
+            assertThat(sql).contains("productTypeCode");
+            assertThat(sql).contains("CHECKING");
+            assertThat(sql).contains("companyOfInterestId");
+            assertThat(sql).contains("WF_MORTGAGE");
+        }
+
+        @Test
+        void shouldBuildUC9QueryWithIdentityJoin() {
+            // When
+            String sql = service.buildUC9Query("100000375005", null, null, 10);
+
+            // Then - should join to identity for customer details
+            assertThat(sql).containsIgnoringCase("identities AS");
+            assertThat(sql).containsIgnoringCase("JOIN");
+        }
+
+        @Test
+        void shouldBuildUC9QueryWithAddressJoin() {
+            // When
+            String sql = service.buildUC9Query("100000375005", null, null, 10);
+
+            // Then - should join to addresses
+            assertThat(sql).containsIgnoringCase("addresses AS");
+        }
+
+        @Test
+        void shouldBuildUC9QueryWithJsonOutputIncludingAccountDetails() {
+            // When
+            String sql = service.buildUC9Query("100000375005", null, null, 10);
+
+            // Then - output should include account-specific fields
+            assertThat(sql).contains("'ecn'");
+            assertThat(sql).contains("'accountNumber'");
+        }
+
+        @Test
+        void shouldValidateNullAccountNumber() {
+            assertThatThrownBy(() -> service.searchUC9(null, null, null, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Account number");
+        }
+
+        @Test
+        void shouldValidateEmptyAccountNumber() {
+            assertThatThrownBy(() -> service.searchUC9("", null, null, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Account number");
+        }
+    }
+
+    @Nested
+    class UC10QueryTests {
+        // UC-10: Search by Account Number (tokenized/hyphenated format)
+
+        @Test
+        void shouldBuildUC10QueryWithHyphenatedAccountNumber() {
+            // When
+            String sql = service.buildUC10Query("1000-0037-5005", 10);
+
+            // Then - should search hyphenated field
+            assertThat(sql).contains("json_textcontains");
+            assertThat(sql).contains("accountNumberHyphenated");
+            assertThat(sql).contains("1000-0037-5005");
+        }
+
+        @Test
+        void shouldBuildUC10QueryWithAccountCTE() {
+            // When
+            String sql = service.buildUC10Query("1000-0037-5005", 10);
+
+            // Then - should have accounts CTE
+            assertThat(sql).containsIgnoringCase("accounts AS");
+        }
+
+        @Test
+        void shouldBuildUC10QueryWithIdentityAndAddressJoins() {
+            // When
+            String sql = service.buildUC10Query("1000-0037-5005", 10);
+
+            // Then - should join to identity and address
+            assertThat(sql).containsIgnoringCase("identities AS");
+            assertThat(sql).containsIgnoringCase("addresses AS");
+        }
+
+        @Test
+        void shouldBuildUC10QueryWithJsonOutput() {
+            // When
+            String sql = service.buildUC10Query("1000-0037-5005", 10);
+
+            // Then
+            assertThat(sql).containsIgnoringCase("SELECT");
+            assertThat(sql).containsIgnoringCase("json");
+            assertThat(sql).contains("'ecn'");
+        }
+
+        @Test
+        void shouldNormalizeUnhyphenatedInput() {
+            // Given - user provides unhyphenated account number
+            // When
+            String sql = service.buildUC10Query("100000375005", 10);
+
+            // Then - should convert to hyphenated format for search
+            assertThat(sql).contains("1000-0037-5005");
+        }
+
+        @Test
+        void shouldValidateNullTokenizedAccount() {
+            assertThatThrownBy(() -> service.searchUC10(null, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Account");
+        }
+
+        @Test
+        void shouldValidateEmptyTokenizedAccount() {
+            assertThatThrownBy(() -> service.searchUC10("", 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Account");
+        }
+    }
+
+    @Nested
+    class UC11QueryTests {
+        // UC-11: Search by Phone Number (full 10-digit)
+
+        @Test
+        void shouldBuildUC11QueryWithPhoneTextSearch() {
+            // When
+            String sql = service.buildUC11Query("5549414620", 10);
+
+            // Then - phone should be text search
+            assertThat(sql).contains("json_textcontains");
+            assertThat(sql).contains("phoneNumber");
+            assertThat(sql).contains("5549414620");
+        }
+
+        @Test
+        void shouldBuildUC11QueryWithPhoneCTE() {
+            // When
+            String sql = service.buildUC11Query("5549414620", 10);
+
+            // Then - should have phones CTE
+            assertThat(sql).containsIgnoringCase("phones AS");
+        }
+
+        @Test
+        void shouldBuildUC11QueryWithIdentityJoin() {
+            // When
+            String sql = service.buildUC11Query("5549414620", 10);
+
+            // Then - should join to identity for customer details
+            assertThat(sql).containsIgnoringCase("identities AS");
+            assertThat(sql).containsIgnoringCase("JOIN");
+        }
+
+        @Test
+        void shouldBuildUC11QueryWithAddressJoin() {
+            // When
+            String sql = service.buildUC11Query("5549414620", 10);
+
+            // Then - should join to addresses
+            assertThat(sql).containsIgnoringCase("addresses AS");
+        }
+
+        @Test
+        void shouldBuildUC11QueryWithJsonOutput() {
+            // When
+            String sql = service.buildUC11Query("5549414620", 10);
+
+            // Then
+            assertThat(sql).containsIgnoringCase("SELECT");
+            assertThat(sql).containsIgnoringCase("json");
+            assertThat(sql).contains("'ecn'");
+            assertThat(sql).contains("'phoneNumber'");
+        }
+
+        @Test
+        void shouldBuildUC11QueryWithRowLimit() {
+            // When
+            String sql = service.buildUC11Query("5549414620", 25);
+
+            // Then
+            assertThat(sql).containsIgnoringCase("FETCH FIRST 25 ROWS ONLY");
+        }
+
+        @Test
+        void shouldValidateNullPhoneNumber() {
+            assertThatThrownBy(() -> service.searchUC11(null, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Phone");
+        }
+
+        @Test
+        void shouldValidateEmptyPhoneNumber() {
+            assertThatThrownBy(() -> service.searchUC11("", 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Phone");
+        }
+
+        @Test
+        void shouldValidatePhoneNumberLength() {
+            assertThatThrownBy(() -> service.searchUC11("12345", 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("10 digits");
         }
     }
 

@@ -161,6 +161,56 @@ public class MongoSqlSearchService {
         return executeQuery(sql);
     }
 
+    // ==================== UC 8-11 Search Methods (Other Searches) ====================
+
+    /**
+     * UC-8: Search by TIN (full 9-digit).
+     * Exact match on full Tax Identification Number (SSN/TIN).
+     */
+    public List<UcSearchResult> searchUC8(String tin, int limit) {
+        validateTin(tin);
+        validateLimit(limit);
+
+        String sql = buildUC8Query(tin, limit);
+        return executeQuery(sql);
+    }
+
+    /**
+     * UC-9: Search by Account Number with optional filters.
+     * Exact match on full account number with optional product type and COID filters.
+     */
+    public List<UcSearchResult> searchUC9(String accountNumber, String productType, String coid, int limit) {
+        validateAccountNumber(accountNumber);
+        validateLimit(limit);
+
+        String sql = buildUC9Query(accountNumber, productType, coid, limit);
+        return executeQuery(sql);
+    }
+
+    /**
+     * UC-10: Search by Tokenized Account Number (hyphenated format).
+     * Searches on the hyphenated format (XXXX-XXXX-XXXX) of account numbers.
+     */
+    public List<UcSearchResult> searchUC10(String tokenizedAccount, int limit) {
+        validateNotEmpty(tokenizedAccount, "Account number");
+        validateLimit(limit);
+
+        String sql = buildUC10Query(tokenizedAccount, limit);
+        return executeQuery(sql);
+    }
+
+    /**
+     * UC-11: Search by Phone Number (full 10-digit).
+     * Exact match on full 10-digit phone number.
+     */
+    public List<UcSearchResult> searchUC11(String phoneNumber, int limit) {
+        validatePhoneNumber10Digits(phoneNumber);
+        validateLimit(limit);
+
+        String sql = buildUC11Query(phoneNumber, limit);
+        return executeQuery(sql);
+    }
+
     // ==================== Query Builders ====================
 
     /**
@@ -662,6 +712,274 @@ public class MongoSqlSearchService {
                 account, escapeSql(accountNumber), address, limit);
     }
 
+    // ==================== UC 8-11 Query Builders ====================
+
+    /**
+     * Builds the SQL query for UC-8: Search by TIN (full 9-digit).
+     * Exact match on full Tax Identification Number.
+     */
+    public String buildUC8Query(String tin, int limit) {
+        String identity = collectionPrefix + "identity";
+        String address = collectionPrefix + "address";
+
+        return """
+            WITH
+            identities AS (
+              SELECT "DATA"
+              FROM "%s"
+              WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%s', 1)
+            ),
+            addresses AS (
+              SELECT "DATA"
+              FROM "%s"
+            ),
+            joined AS (
+              SELECT
+                i."DATA" identity_data,
+                a."DATA" address_data
+              FROM identities i
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+            )
+            SELECT /*+ MONITOR */ json {
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
+              'alternateName' : CASE
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
+              END,
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
+            }
+            FROM joined j
+            FETCH FIRST %d ROWS ONLY
+            """.formatted(identity, escapeSql(tin), address, limit);
+    }
+
+    /**
+     * Builds the SQL query for UC-9: Search by Account Number with optional filters.
+     * Exact match on full account number with optional productType and COID filters.
+     */
+    public String buildUC9Query(String accountNumber, String productType, String coid, int limit) {
+        String account = collectionPrefix + "account";
+        String identity = collectionPrefix + "identity";
+        String address = collectionPrefix + "address";
+
+        // Build optional filter conditions
+        StringBuilder accountFilters = new StringBuilder();
+        if (productType != null && !productType.isBlank()) {
+            accountFilters.append(String.format(
+                "\n    AND ac.\"DATA\".\"productTypeCode\".string() = '%s'", escapeSql(productType)));
+        }
+        if (coid != null && !coid.isBlank()) {
+            accountFilters.append(String.format(
+                "\n    AND ac.\"DATA\".\"companyOfInterestId\".string() = '%s'", escapeSql(coid)));
+        }
+
+        return """
+            WITH
+            accounts AS (
+              SELECT "DATA"
+              FROM "%s" ac
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumber"', '%s', 1)%s
+            ),
+            identities AS (
+              SELECT "DATA"
+              FROM "%s"
+            ),
+            addresses AS (
+              SELECT "DATA"
+              FROM "%s"
+            ),
+            joined AS (
+              SELECT
+                ac."DATA" account_data,
+                i."DATA" identity_data,
+                a."DATA" address_data
+              FROM accounts ac
+              JOIN identities i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+            )
+            SELECT /*+ MONITOR */ json {
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'accountNumber' : j.account_data."accountKey"."accountNumber".string(),
+              'productType' : j.account_data."productTypeCode".string(),
+              'companyOfInterestId' : j.account_data."companyOfInterestId".string(),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
+              'alternateName' : CASE
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
+              END,
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
+            }
+            FROM joined j
+            FETCH FIRST %d ROWS ONLY
+            """.formatted(account, escapeSql(accountNumber), accountFilters.toString(),
+                identity, address, limit);
+    }
+
+    /**
+     * Builds the SQL query for UC-10: Search by Tokenized Account Number (hyphenated).
+     * Searches on accountNumberHyphenated field in format XXXX-XXXX-XXXX.
+     * If input is unhyphenated 12-digit, converts to hyphenated format.
+     */
+    public String buildUC10Query(String tokenizedAccount, int limit) {
+        String account = collectionPrefix + "account";
+        String identity = collectionPrefix + "identity";
+        String address = collectionPrefix + "address";
+
+        // Normalize input to hyphenated format if not already
+        String hyphenatedAccount = normalizeToHyphenated(tokenizedAccount);
+
+        return """
+            WITH
+            accounts AS (
+              SELECT "DATA"
+              FROM "%s"
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberHyphenated"', '%s', 1)
+            ),
+            identities AS (
+              SELECT "DATA"
+              FROM "%s"
+            ),
+            addresses AS (
+              SELECT "DATA"
+              FROM "%s"
+            ),
+            joined AS (
+              SELECT
+                ac."DATA" account_data,
+                i."DATA" identity_data,
+                a."DATA" address_data
+              FROM accounts ac
+              JOIN identities i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+            )
+            SELECT /*+ MONITOR */ json {
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'accountNumber' : j.account_data."accountKey"."accountNumber".string(),
+              'accountNumberHyphenated' : j.account_data."accountKey"."accountNumberHyphenated".string(),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
+              'alternateName' : CASE
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
+              END,
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
+            }
+            FROM joined j
+            FETCH FIRST %d ROWS ONLY
+            """.formatted(account, escapeSql(hyphenatedAccount), identity, address, limit);
+    }
+
+    /**
+     * Builds the SQL query for UC-11: Search by Phone Number (full 10-digit).
+     * Exact match on full phone number.
+     */
+    public String buildUC11Query(String phoneNumber, int limit) {
+        String phone = collectionPrefix + "phone";
+        String identity = collectionPrefix + "identity";
+        String address = collectionPrefix + "address";
+
+        return """
+            WITH
+            phones AS (
+              SELECT "DATA"
+              FROM "%s"
+              WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '%s', 1)
+            ),
+            identities AS (
+              SELECT "DATA"
+              FROM "%s"
+            ),
+            addresses AS (
+              SELECT "DATA"
+              FROM "%s"
+            ),
+            joined AS (
+              SELECT
+                p."DATA" phone_data,
+                i."DATA" identity_data,
+                a."DATA" address_data
+              FROM phones p
+              JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+            )
+            SELECT /*+ MONITOR */ json {
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'phoneNumber' : j.phone_data."phoneKey"."phoneNumber".string(),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
+              'alternateName' : CASE
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
+              END,
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
+            }
+            FROM joined j
+            FETCH FIRST %d ROWS ONLY
+            """.formatted(phone, escapeSql(phoneNumber), identity, address, limit);
+    }
+
+    /**
+     * Normalizes an account number to hyphenated format (XXXX-XXXX-XXXX).
+     * If already hyphenated, returns as-is. If 12-digit unhyphenated, converts.
+     */
+    private String normalizeToHyphenated(String accountNumber) {
+        if (accountNumber == null) return null;
+
+        // Remove any existing hyphens/spaces to normalize
+        String digits = accountNumber.replaceAll("[\\-\\s]", "");
+
+        // If it's 12 digits, convert to XXXX-XXXX-XXXX format
+        if (digits.length() == 12 && digits.matches("\\d+")) {
+            return digits.substring(0, 4) + "-" + digits.substring(4, 8) + "-" + digits.substring(8, 12);
+        }
+
+        // Otherwise return as-is (may already be hyphenated or different format)
+        return accountNumber;
+    }
+
     // ==================== Wildcard Pattern Builders ====================
 
     /**
@@ -844,6 +1162,34 @@ public class MongoSqlSearchService {
     private void validateLimit(int limit) {
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be greater than 0");
+        }
+    }
+
+    private void validateTin(String tin) {
+        if (tin == null) {
+            throw new IllegalArgumentException("TIN cannot be null");
+        }
+        if (tin.isBlank()) {
+            throw new IllegalArgumentException("TIN cannot be empty");
+        }
+        // Remove any dashes for length validation
+        String digitsOnly = tin.replaceAll("-", "");
+        if (digitsOnly.length() != 9) {
+            throw new IllegalArgumentException("TIN must be exactly 9 digits");
+        }
+    }
+
+    private void validatePhoneNumber10Digits(String phoneNumber) {
+        if (phoneNumber == null) {
+            throw new IllegalArgumentException("Phone number cannot be null");
+        }
+        if (phoneNumber.isBlank()) {
+            throw new IllegalArgumentException("Phone number cannot be empty");
+        }
+        // Remove any formatting characters for length validation
+        String digitsOnly = phoneNumber.replaceAll("[\\-\\s\\(\\)]", "");
+        if (digitsOnly.length() != 10) {
+            throw new IllegalArgumentException("Phone number must be exactly 10 digits");
         }
     }
 }

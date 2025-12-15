@@ -59,6 +59,7 @@ public class AccountGenerator implements DataGenerator {
         // Generate account number
         String accountNumber = generateAccountNumber(sequenceNumber);
         String accountNumberLast4 = accountNumber.substring(accountNumber.length() - 4);
+        String accountNumberHyphenated = hyphenateAccountNumber(accountNumber);
 
         // Determine product type based on sequence for variety
         String productTypeCode = PRODUCT_TYPE_CODES.get((int) (sequenceNumber % PRODUCT_TYPE_CODES.size()));
@@ -89,6 +90,7 @@ public class AccountGenerator implements DataGenerator {
                 .append("customerCompanyNumber", customerCompanyNumber)
                 .append("accountNumber", accountNumber)
                 .append("accountNumberLast4", accountNumberLast4)
+                .append("accountNumberHyphenated", accountNumberHyphenated)
                 .append("accountNumberTokenized", generateTokenizedAccount(accountNumber)))
             .append("productTypeCode", productTypeCode)
             .append("companyOfInterestId", coid)
@@ -201,6 +203,19 @@ public class AccountGenerator implements DataGenerator {
     private String generateTokenizedAccount(String accountNumber) {
         // Simple tokenization simulation
         return "TOK" + accountNumber.hashCode() + random.randomInt(1000, 9999);
+    }
+
+    /**
+     * Converts a 12-digit account number to hyphenated format (XXXX-XXXX-XXXX).
+     * Used for UC-10 tokenized account search.
+     */
+    private String hyphenateAccountNumber(String accountNumber) {
+        if (accountNumber == null || accountNumber.length() != 12) {
+            return accountNumber;
+        }
+        return accountNumber.substring(0, 4) + "-" +
+               accountNumber.substring(4, 8) + "-" +
+               accountNumber.substring(8, 12);
     }
 
     private Double generateBalanceAmount(String productType) {
