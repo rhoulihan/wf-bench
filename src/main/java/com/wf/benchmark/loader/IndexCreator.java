@@ -15,10 +15,20 @@ import java.util.List;
  *
  * These indexes support the UC 1-7 search queries which use SQL/JDBC
  * to perform cross-collection joins with Oracle Text search.
+ *
+ * <p>JSON Search Indexes are created with wildcard optimization (per Rodrigo Fuentes):
+ * <ul>
+ *   <li>WILDCARD_INDEX=TRUE - enables k-gram index for efficient wildcard searches</li>
+ *   <li>WILDCARD_INDEX_K=4 - 4-character gram index</li>
+ * </ul>
+ * This optimizes `%term` patterns used in SSN last-4 searches.
  */
 public class IndexCreator {
 
     private static final Logger log = LoggerFactory.getLogger(IndexCreator.class);
+
+    /** Wordlist preference name for wildcard-optimized indexes */
+    private static final String WORDLIST_PREFERENCE = "idx_wl";
 
     private final MongoDatabase database;
     private final String collectionPrefix;
@@ -38,12 +48,68 @@ public class IndexCreator {
         createPhoneIndexes(quiet);
         createAccountIndexes(quiet);
         createAddressIndexes(quiet);
+        createWordlistPreference(quiet);
         createJsonSearchIndex(quiet);
+    }
+
+    /**
+     * Create the wildcard wordlist preference for optimized text search.
+     * This preference enables k-gram indexing for efficient wildcard pattern searches.
+     *
+     * @param quiet if true, suppress console output
+     */
+    private void createWordlistPreference(boolean quiet) {
+        if (!quiet) {
+            System.out.println("  Creating wildcard wordlist preference...");
+        }
+
+        try {
+            // Try to create the wordlist preference using PL/SQL via $sql
+            // Note: This may fail if the preference already exists or if $sql doesn't support PL/SQL
+            String plsql = String.format(
+                "BEGIN " +
+                "  BEGIN ctx_ddl.drop_preference('%s'); EXCEPTION WHEN OTHERS THEN NULL; END; " +
+                "  ctx_ddl.create_preference('%s', 'BASIC_WORDLIST'); " +
+                "  ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX', 'TRUE'); " +
+                "  ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX_K', '4'); " +
+                "END;",
+                WORDLIST_PREFERENCE, WORDLIST_PREFERENCE, WORDLIST_PREFERENCE, WORDLIST_PREFERENCE
+            );
+
+            Document sqlCommand = new Document("$sql", plsql);
+            database.getCollection("identity").aggregate(Arrays.asList(sqlCommand)).first();
+
+            if (!quiet) {
+                System.out.printf("  Wordlist preference '%s' created (WILDCARD_INDEX=TRUE, K=4).%n", WORDLIST_PREFERENCE);
+            }
+            log.info("Created wordlist preference {} with WILDCARD_INDEX=TRUE, K=4", WORDLIST_PREFERENCE);
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.contains("already exists") || msg.contains("DRG-10700"))) {
+                if (!quiet) {
+                    System.out.printf("  Wordlist preference '%s' already exists.%n", WORDLIST_PREFERENCE);
+                }
+                log.debug("Wordlist preference {} already exists", WORDLIST_PREFERENCE);
+            } else {
+                // PL/SQL via $sql may not be supported - this is expected
+                log.warn("Could not create wordlist preference via MongoDB $sql (may need manual creation): {}", msg);
+                if (!quiet) {
+                    System.out.printf("  Note: Wordlist preference may need manual creation via SQL*Plus.%n");
+                    System.out.printf("  Run: BEGIN ctx_ddl.create_preference('%s', 'BASIC_WORDLIST'); " +
+                        "ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX', 'TRUE'); " +
+                        "ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX_K', '4'); END;%n",
+                        WORDLIST_PREFERENCE, WORDLIST_PREFERENCE, WORDLIST_PREFERENCE);
+                }
+            }
+        }
     }
 
     /**
      * Create JSON Search Indexes on all collections that use json_textcontains().
      * These indexes are required for the score() function used in UC queries.
+     *
+     * <p>Indexes are created with the wildcard wordlist preference for optimized
+     * `%term` pattern searches (SSN last-4, etc).
      *
      * <p>Collections requiring search indexes:
      * <ul>
@@ -64,23 +130,24 @@ public class IndexCreator {
             String indexName = "idx_" + collName + "_search";
 
             if (!quiet) {
-                System.out.printf("  Creating JSON Search Index %s.%s...%n", collName, indexName);
+                System.out.printf("  Creating JSON Search Index %s.%s (with wildcard wordlist)...%n", collName, indexName);
             }
 
             try {
                 // Use MongoDB $sql aggregate operator to execute CREATE SEARCH INDEX DDL
+                // Include wordlist parameter for wildcard optimization
                 String ddl = String.format(
-                    "CREATE SEARCH INDEX %s ON %s(DATA) FOR JSON",
-                    indexName, collName.toUpperCase()
+                    "CREATE SEARCH INDEX %s ON %s(DATA) FOR JSON PARAMETERS ('wordlist %s')",
+                    indexName, collName.toUpperCase(), WORDLIST_PREFERENCE
                 );
 
                 Document sqlCommand = new Document("$sql", ddl);
                 database.getCollection(collName).aggregate(Arrays.asList(sqlCommand)).first();
 
                 if (!quiet) {
-                    System.out.printf("  JSON Search Index %s created successfully.%n", indexName);
+                    System.out.printf("  JSON Search Index %s created successfully (wildcard optimized).%n", indexName);
                 }
-                log.info("Created JSON Search Index {} on {}", indexName, collName);
+                log.info("Created JSON Search Index {} on {} with wordlist {}", indexName, collName, WORDLIST_PREFERENCE);
             } catch (Exception e) {
                 String msg = e.getMessage();
                 if (msg != null && (msg.contains("already exists") || msg.contains("DRG-10700"))) {

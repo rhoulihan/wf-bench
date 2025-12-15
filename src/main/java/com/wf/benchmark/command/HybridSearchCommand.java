@@ -36,6 +36,9 @@ import java.util.concurrent.Callable;
 )
 public class HybridSearchCommand implements Callable<Integer> {
 
+    /** Wordlist preference name for wildcard-optimized indexes */
+    private static final String WORDLIST_PREFERENCE = "idx_wl";
+
     @Option(names = {"-j", "--jdbc-url"}, description = "Oracle JDBC connection URL", required = true)
     private String jdbcUrl;
 
@@ -246,11 +249,34 @@ public class HybridSearchCommand implements Callable<Integer> {
     }
 
     private int createOracleTextIndex(DataSource dataSource) {
-        System.out.println("Creating Oracle Text index for fuzzy search...");
+        System.out.println("Creating Oracle Text index for fuzzy search (with wildcard optimization)...");
         String indexName = "idx_" + collection + "_text";
 
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
+
+            // First, create the wildcard wordlist preference
+            System.out.println("Creating wildcard wordlist preference...");
+            try {
+                // Create preference with wildcard settings (per Rodrigo Fuentes)
+                // Drop existing preference first, then create new one
+                String createPref = String.format(
+                    "BEGIN " +
+                    "  BEGIN ctx_ddl.drop_preference('%s'); EXCEPTION WHEN OTHERS THEN NULL; END; " +
+                    "  ctx_ddl.create_preference('%s', 'BASIC_WORDLIST'); " +
+                    "  ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX', 'TRUE'); " +
+                    "  ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX_K', '4'); " +
+                    "END;",
+                    WORDLIST_PREFERENCE, WORDLIST_PREFERENCE, WORDLIST_PREFERENCE, WORDLIST_PREFERENCE);
+                stmt.execute(createPref);
+                System.out.println("Wordlist preference created: " + WORDLIST_PREFERENCE + " (WILDCARD_INDEX=TRUE, K=4)");
+            } catch (SQLException e) {
+                if (e.getMessage() != null && e.getMessage().contains("already exists")) {
+                    System.out.println("Wordlist preference already exists: " + WORDLIST_PREFERENCE);
+                } else {
+                    System.out.println("Note: Wordlist preference may already exist or failed: " + e.getMessage());
+                }
+            }
 
             if (dropTextIndex) {
                 System.out.println("Dropping existing index if present...");
@@ -262,12 +288,13 @@ public class HybridSearchCommand implements Callable<Integer> {
                 }
             }
 
+            // Create index with wildcard wordlist
             String sql = String.format(
-                "CREATE SEARCH INDEX %s ON %s(DATA) FOR JSON",
-                indexName, collection);
+                "CREATE SEARCH INDEX %s ON %s(DATA) FOR JSON PARAMETERS ('wordlist %s')",
+                indexName, collection, WORDLIST_PREFERENCE);
             System.out.println("Executing: " + sql);
             stmt.execute(sql);
-            System.out.println("Successfully created Oracle Text index: " + indexName);
+            System.out.println("Successfully created Oracle Text index: " + indexName + " (wildcard optimized)");
             return 0;
 
         } catch (SQLException e) {

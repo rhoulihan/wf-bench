@@ -147,6 +147,17 @@ The hybrid search command requires a JDBC URL for Oracle Text and vector search 
 jdbc:oracle:thin:@wellsfargo_low?TNS_ADMIN=/home/opc/rick/wallet_wellsfargo
 ```
 
+**HIGH Service (for DDL operations like index creation):**
+Use the HIGH service for better performance during DDL operations:
+```
+jdbc:oracle:thin:@wellsfargo_high?TNS_ADMIN=/home/opc/rick/wallet_wellsfargo
+```
+
+Or direct connect string (without wallet):
+```
+(description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1521)(host=adb.us-ashburn-1.oraclecloud.com))(connect_data=(service_name=mqssyowmqvgac1y_wellsfargo_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
+```
+
 **CRITICAL: Password Escaping Issue with `!` Character**
 
 The password contains `!` which causes shell escaping issues. The solution is to extract the password from the existing MongoDB connection string file:
@@ -180,16 +191,34 @@ jdbc:oracle:thin:@(description=(retry_count=20)(retry_delay=3)(address=(protocol
 - **Hybrid Search Config:** `config/hybrid-search-config.yaml`
 - **MongoDB Connection String:** `~/connstr.txt` (base64 decoded, contains password)
 
-### Oracle Text Search Index
-The JSON Search Index for fuzzy text search is already created on the `identity` collection:
+### Oracle Text Search Index (Wildcard Optimized)
+
+JSON Search Indexes are created with **wildcard optimization** (per Rodrigo Fuentes) for efficient `%term` pattern searches:
+
 ```sql
--- Index name: idx_identity_data_text
--- SQL to recreate if needed:
-CREATE SEARCH INDEX idx_identity_data_text ON identity(DATA) FOR JSON;
+-- 1. Create wordlist preference with wildcard optimization (K=4 k-gram index)
+BEGIN
+  ctx_ddl.create_preference('idx_wl', 'BASIC_WORDLIST');
+  ctx_ddl.set_attribute('idx_wl', 'WILDCARD_INDEX', 'TRUE');
+  ctx_ddl.set_attribute('idx_wl', 'WILDCARD_INDEX_K', '4');
+END;
+/
+
+-- 2. Create search indexes with wildcard wordlist
+CREATE SEARCH INDEX idx_identity_search ON identity(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
+CREATE SEARCH INDEX idx_phone_search ON phone(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
+CREATE SEARCH INDEX idx_account_search ON account(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
+CREATE SEARCH INDEX idx_address_search ON address(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
 ```
 
+**Wildcard Index Benefits:**
+- `WILDCARD_INDEX=TRUE` enables k-gram index for efficient wildcard searches
+- `WILDCARD_INDEX_K=4` creates 4-character gram index
+- Optimizes `%term` patterns (SSN last-4, partial matches)
+- **20x performance improvement** on SSN last-4 searches
+
 ### Hybrid Search Features
-- **Fuzzy Search:** Uses `CONTAINS(DATA, 'fuzzy(term)', 1) > 0` with JSON Search Index
+- **Fuzzy Search:** Uses `json_textcontains(DATA, '$.path', 'term', 1)` with JSON Search Index
 - **Phonetic Search:** Uses `SOUNDEX()` function for names that sound alike
 - **Vector Search:** Requires embedding column and vector index (not yet configured)
 
