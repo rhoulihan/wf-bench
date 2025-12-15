@@ -73,13 +73,28 @@ This document provides a comprehensive summary of the UC 1-7 unified search impl
 | `address` | Address records (array per customer) | _id.customerNumber, addresses[].cityName, addresses[].stateCode, addresses[].postalCode |
 
 ### Indexes
-Full JSON search indexes created for Oracle Text operations:
+Full JSON search indexes created for Oracle Text operations with **wildcard optimization** (per Rodrigo Fuentes):
+
 ```sql
-CREATE SEARCH INDEX idx_identity_search ON identity(DATA) FOR JSON;
-CREATE SEARCH INDEX idx_phone_search ON phone(DATA) FOR JSON;
-CREATE SEARCH INDEX idx_account_search ON account(DATA) FOR JSON;
-CREATE SEARCH INDEX idx_address_search ON address(DATA) FOR JSON;
+-- Create wordlist preference with wildcard optimization (K=4 for k-gram index)
+BEGIN
+  ctx_ddl.create_preference('idx_wl', 'BASIC_WORDLIST');
+  ctx_ddl.set_attribute('idx_wl', 'WILDCARD_INDEX', 'TRUE');
+  ctx_ddl.set_attribute('idx_wl', 'WILDCARD_INDEX_K', '4');
+END;
+/
+
+-- Create search indexes with wildcard wordlist
+CREATE SEARCH INDEX idx_identity_search ON identity(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
+CREATE SEARCH INDEX idx_phone_search ON phone(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
+CREATE SEARCH INDEX idx_account_search ON account(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
+CREATE SEARCH INDEX idx_address_search ON address(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
 ```
+
+**Wildcard Index Benefits:**
+- `WILDCARD_INDEX=TRUE` enables k-gram index for efficient wildcard searches
+- `WILDCARD_INDEX_K=4` creates 4-character gram index
+- Optimizes `%term` patterns (SSN last 4, partial matches)
 
 Functional indexes on customerNumber fields for JOIN optimization:
 ```sql
@@ -272,7 +287,7 @@ All UC queries return results in the same format. Here is a sample result:
 
 ---
 
-## Benchmark Results (December 15, 2025)
+## Benchmark Results (December 15, 2025 - Wildcard Index)
 
 ### Test Configuration
 - **Implementation:** MongoDB $sql operator with json_textcontains()
@@ -285,6 +300,7 @@ All UC queries return results in the same format. Here is a sample result:
   - Direct match on accountNumberLast4 (no % prefix)
   - **Dot notation** for JOINs and SELECT per Oracle team guidance (Rodrigo Fuentes)
   - `/*+ MONITOR */` hint for execution monitoring
+  - **Wildcard Index (K=4)** for optimized `%term` pattern searches
 
 ### Dot Notation Optimization
 
@@ -313,27 +329,30 @@ Per Oracle team guidance, the queries now use **dot notation** instead of `JSON_
 
 | UC | Description | Avg Latency | P95 | Throughput | Results | Status |
 |----|-------------|-------------|-----|------------|---------|--------|
-| UC-1 | Phone + SSN | **763 ms** | 770 ms | 1.3/s | 1 | ✓ OK |
-| UC-2 | Phone + SSN + Account | **764 ms** | 769 ms | 1.3/s | 1 | ✓ OK |
-| UC-3 | Phone + Account Last 4 | **8.56 ms** | 8.86 ms | 116.8/s | 1 | ✓ **FIXED** |
-| UC-4 | Account + SSN | **763 ms** | 766 ms | 1.3/s | 1 | ✓ OK |
-| UC-5 | City/State/ZIP + SSN + Account | **903 ms** | 913 ms | 1.1/s | 1 | ✓ **FIXED** |
-| UC-6 | Email + Account Last 4 | **8.75 ms** | 9.20 ms | 114.2/s | 1 | ✓ OK |
-| UC-7 | Email + Phone + Account | **9.74 ms** | 10.26 ms | 102.6/s | 1 | ✓ OK |
+| UC-1 | Phone + SSN | **37.92 ms** | 38.85 ms | 26.4/s | 1 | ✓ OK |
+| UC-2 | Phone + SSN + Account | **40.72 ms** | 42.37 ms | 24.6/s | 1 | ✓ OK |
+| UC-3 | Phone + Account Last 4 | **8.10 ms** | 8.68 ms | 123.4/s | 1 | ✓ OK |
+| UC-4 | Account + SSN | **37.09 ms** | 37.79 ms | 27.0/s | 1 | ✓ OK |
+| UC-5 | City/State/ZIP + SSN + Account | **176.85 ms** | 180.99 ms | 5.7/s | 1 | ✓ OK |
+| UC-6 | Email + Account Last 4 | **7.91 ms** | 8.25 ms | 126.4/s | 1 | ✓ OK |
+| UC-7 | Email + Phone + Account | **9.25 ms** | 9.62 ms | 108.1/s | 1 | ✓ OK |
 
-### Performance Improvements (Dot Notation vs JSON_VALUE)
+### Performance Improvements (Wildcard Index vs Previous)
 
 | UC | Before (ms) | After (ms) | Improvement |
 |----|-------------|------------|-------------|
-| UC-1 | 2180 | 763 | 2.9x faster |
-| UC-3 | 7003 | 8.56 | **818x faster** |
-| UC-5 | Failed | 903 | Now working |
-| UC-6 | 14 | 8.75 | 1.6x faster |
-| UC-7 | 54 | 9.74 | 5.5x faster |
+| UC-1 | 763 | 37.92 | **20x faster** |
+| UC-2 | 764 | 40.72 | **19x faster** |
+| UC-3 | 8.56 | 8.10 | 1.1x faster |
+| UC-4 | 763 | 37.09 | **21x faster** |
+| UC-5 | 903 | 176.85 | **5x faster** |
+| UC-6 | 8.75 | 7.91 | 1.1x faster |
+| UC-7 | 9.74 | 9.25 | 1.1x faster |
 
-**Status Notes:**
-- **UC-3 (FIXED):** Dot notation enables proper index usage - reduced from 7s to 8.56ms
-- **UC-5 (FIXED):** Array access with JSON_VALUE for WHERE clause, dot notation for SELECT
+**Performance Notes:**
+- **Wildcard Index (K=4):** Dramatic improvement for `%term` pattern searches (UC-1, UC-2, UC-4, UC-5)
+- **20x improvement** on SSN last-4 searches due to k-gram index optimization
+- **UC-3, UC-6, UC-7:** Already fast with exact-match patterns, minimal change
 
 ### Sample Data (Customer 1000250004)
 
@@ -346,14 +365,6 @@ Per Oracle team guidance, the queries now use **dot notation** instead of `JSON_
 | UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `South Wilbertfurt`, `CA`, `54717`, `%1007`, `5005` |
 | UC-6 | Email (local part), Account Last 4 | `ashields`, `5005` |
 | UC-7 | Email, Phone, Account Number | `ashields`, `5549414620`, `100000375005` |
-
-### Performance Notes
-
-- **UC-6 & UC-7** achieve excellent performance (< 10ms) due to efficient DOMAIN INDEX access and selective text search conditions
-- **UC-1, UC-2, UC-4** perform consistently around 770ms using HASH JOIN with DOMAIN INDEX access
-- **UC-3 performance issue:** The identity CTE has no fuzzy filter (only used as a join table), causing full table scans. The execution plan shows cost of 3417 with NESTED LOOPS on identity
-- **UC-5 returns 0 results:** The execution plan shows MERGE JOIN CARTESIAN between address and account tables, indicating missing join condition optimization
-- **All queries** use functional indexes on customerNumber fields (`idx_identity_custnum`, `idx_address_custnum`) for JOIN optimization
 
 ---
 
@@ -680,7 +691,7 @@ Predicate Information:
   10 - access(JSON_VALUE(ac."DATA",'$.accountHolders[0].customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
   12 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
 
-Note: UC-3 is SLOW (7003ms) because identity CTE has no fuzzy filter - uses IDX_IDENTITY_CUSTNUM for nested loops
+Note: UC-3 uses IDX_IDENTITY_CUSTNUM for nested loops (identity CTE has no fuzzy filter)
 ```
 
 ---
@@ -868,7 +879,7 @@ Predicate Information:
   19 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
        filter(JSON_VALUE(ac."DATA",'$.accountHolders[0].customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
 
-Note: UC-5 returns 0 results due to MERGE JOIN CARTESIAN (line 5) - indicates join condition issue between address and account
+Note: UC-5 uses BITMAP AND on address index for efficient city/state/zip filtering
 ```
 
 ---
