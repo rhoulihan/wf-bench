@@ -167,6 +167,7 @@ public class MongoSqlSearchService {
      * Builds the SQL query for UC-1: Phone + SSN Last 4.
      * Fuzzy matching on both phone and SSN last 4, combined score.
      * SSN last 4 uses ends-with pattern (%term) to anchor at end of string.
+     * Uses dot notation for JOINs and SELECT per Oracle team guidance.
      */
     public String buildUC1Query(String phoneNumber, String ssnLast4, int limit) {
         String phone = collectionPrefix + "phone";
@@ -197,29 +198,29 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 (p.pscore + i.iscore) / 2 ranking_score
               FROM phones p
-              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
             )
-            SELECT json {
+            SELECT /*+ MONITOR */ json {
               'rankingScore' : j.ranking_score,
-              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -231,6 +232,7 @@ public class MongoSqlSearchService {
      * Builds the SQL query for UC-2: Phone + SSN Last 4 + Account Last 4.
      * Fuzzy matching on all three conditions, combined score.
      * SSN last 4 and account last 4 use ends-with pattern (%term) to anchor at end of string.
+     * Uses dot notation for JOINs and SELECT per Oracle team guidance.
      */
     public String buildUC2Query(String phoneNumber, String ssnLast4, String accountLast4, int limit) {
         String phone = collectionPrefix + "phone";
@@ -268,30 +270,30 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 (p.pscore + i.iscore + ac.ascore) / 3 ranking_score
               FROM phones p
-              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+              JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
             )
-            SELECT json {
+            SELECT /*+ MONITOR */ json {
               'rankingScore' : j.ranking_score,
-              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -304,6 +306,7 @@ public class MongoSqlSearchService {
      * Builds the SQL query for UC-3: Phone + Account Last 4.
      * Fuzzy matching on both phone and account last 4, combined score.
      * Account last 4 uses ends-with pattern (%term) to anchor at end of string.
+     * Uses dot notation for JOINs and SELECT per Oracle team guidance.
      */
     public String buildUC3Query(String phoneNumber, String accountLast4, int limit) {
         String phone = collectionPrefix + "phone";
@@ -340,30 +343,30 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 (p.pscore + ac.ascore) / 2 ranking_score
               FROM phones p
-              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+              JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
             )
-            SELECT json {
+            SELECT /*+ MONITOR */ json {
               'rankingScore' : j.ranking_score,
-              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -375,6 +378,7 @@ public class MongoSqlSearchService {
      * Builds the SQL query for UC-4: Account Number + SSN Last 4.
      * Fuzzy matching on both account number and SSN last 4, combined score.
      * SSN last 4 uses ends-with pattern (%term) to anchor at end of string.
+     * Uses dot notation for JOINs and SELECT per Oracle team guidance.
      */
     public String buildUC4Query(String accountNumber, String ssnLast4, int limit) {
         String account = collectionPrefix + "account";
@@ -405,29 +409,29 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 (ac.ascore + i.iscore) / 2 ranking_score
               FROM accounts ac
-              JOIN identities i ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN identities i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
             )
-            SELECT json {
+            SELECT /*+ MONITOR */ json {
               'rankingScore' : j.ranking_score,
-              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -439,8 +443,9 @@ public class MongoSqlSearchService {
      * Builds the SQL query for UC-5: City/State/ZIP + SSN Last 4 + Account Last 4.
      * Fuzzy matching on city, SSN last 4, and account last 4, combined score.
      * Uses $.addresses.cityName (without array index) for json_textcontains - matches any element.
-     * Uses $.addresses[0].stateCode/postalCode for JSON_VALUE - requires array index for exact match.
+     * Uses dot notation with [0] array index for address fields in WHERE and SELECT.
      * SSN last 4 and account last 4 use ends-with pattern (%term) to anchor at end of string.
+     * Uses dot notation for JOINs and SELECT per Oracle team guidance.
      */
     public String buildUC5Query(String city, String state, String zip, String ssnLast4, String accountLast4, int limit) {
         String addressColl = collectionPrefix + "address";
@@ -474,29 +479,29 @@ public class MongoSqlSearchService {
                 ac."DATA" account_data,
                 (a.addr_score + i.iscore + ac.ascore) / 3 ranking_score
               FROM addresses a
-              JOIN identities i ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN identities i ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
             )
-            SELECT json {
+            SELECT /*+ MONITOR */ json {
               'rankingScore' : j.ranking_score,
-              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addresses[0].addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.addresses[0].cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.addresses[0].stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.addresses[0].postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses[0].countryCode'), 'US'),
-              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
@@ -509,9 +514,10 @@ public class MongoSqlSearchService {
      * Builds the SQL query for UC-6: Email + Account Last 4.
      * Fuzzy matching on email local part (before @) and account last 4, combined score.
      * Account last 4 uses ends-with pattern (%term) to anchor at end of string.
+     * Uses dot notation for JOINs and SELECT per Oracle team guidance.
      *
-     * <p>Optimization: Start with accounts (more selective on last4), then join to identities.
-     * This reduces the search space for email matching.
+     * <p>Optimization: Start with identities (email search), then join to accounts.
+     * Per Oracle team optimized query pattern.
      */
     public String buildUC6Query(String email, String accountLast4, int limit) {
         String identity = collectionPrefix + "identity";
@@ -523,16 +529,16 @@ public class MongoSqlSearchService {
 
         return """
             WITH
-            accounts AS (
-              SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) ascore
+            identities AS (
+              SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) iscore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%s', 1)
+              WHERE json_textcontains("DATA", '$."emails"."emailAddress"', '%s', 1)
               ORDER BY score(1) DESC
             ),
-            identities AS (
-              SELECT "DATA", score(2) iscore
+            accounts AS (
+              SELECT "DATA", score(2) ascore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."emails"."emailAddress"', '%s', 2)
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -543,41 +549,42 @@ public class MongoSqlSearchService {
                 i."DATA" identity_data,
                 ac."DATA" account_data,
                 a."DATA" address_data,
-                (ac.ascore + i.iscore) / 2 ranking_score
-              FROM accounts ac
-              JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber')
-              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+                (i.iscore + ac.ascore) / 2 ranking_score
+              FROM identities i
+              JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
             )
-            SELECT json {
+            SELECT /*+ MONITOR */ json {
               'rankingScore' : j.ranking_score,
-              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
             }
             FROM joined j
             ORDER BY j.ranking_score DESC
             FETCH FIRST %d ROWS ONLY
-            """.formatted(account, escapeSql(accountLast4), identity, escapeSql(emailLocalPart), address, limit);
+            """.formatted(identity, escapeSql(emailLocalPart), account, escapeSql(accountLast4), address, limit);
     }
 
     /**
      * Builds the SQL query for UC-7: Email + Phone + Account Number.
      * Fuzzy matching on email local part (before @), phone, and account number.
+     * Uses dot notation for JOINs and SELECT per Oracle team guidance.
      *
      * <p>Note: Each CTE with json_textcontains must use unique score labels (1, 2, 3)
      * to avoid view-merge conflicts per Oracle team guidance.
@@ -621,30 +628,30 @@ public class MongoSqlSearchService {
                 a."DATA" address_data,
                 (i.iscore + p.pscore + ac.ascore) / 3 combined_score
               FROM identities i
-              JOIN phones p ON JSON_VALUE(p."DATA", '$.phoneKey.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-              JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+              JOIN phones p ON p."DATA"."phoneKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
             )
-            SELECT json {
+            SELECT /*+ MONITOR */ json {
               'rankingScore' : j.combined_score,
-              'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-              'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-              'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-              'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+              'ecn' : j.identity_data."_id"."customerNumber".string(),
+              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+              'name' : j.identity_data."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-                THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-                ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN j.identity_data."individual"."firstName".string()
+                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-              'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-              'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-              'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-              'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-              'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-              'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-              'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-              'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+              'addressLine' : j.address_data."addresses"."addressLine1".string(),
+              'cityName' : j.address_data."addresses"."cityName".string(),
+              'state' : j.address_data."addresses"."stateCode".string(),
+              'postalCode' : j.address_data."addresses"."postalCode".string(),
+              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+              'customerType' : j.identity_data."common"."customerType".string()
             }
             FROM joined j
             ORDER BY j.combined_score DESC
