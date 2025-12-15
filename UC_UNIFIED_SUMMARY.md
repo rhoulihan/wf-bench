@@ -340,11 +340,12 @@ Per Oracle team guidance (Rodrigo Fuentes), removed `%` prefix from `accountNumb
 - Email format: `firstinitiallastname@domain` (e.g., `mkshlerin@icloud.com`, `avandervort@gmail.com`)
 
 ### Performance Notes
-- **UC-6 (Email search)** remains the slowest query (~1.4s) due to fuzzy text search on email addresses across 1M identity records. Common name patterns result in many partial matches.
+- **UC-6 (Email search)** now achieves ~244ms after Oracle team optimization (removing % prefix from accountNumberLast4). Uses domain index on both account and identity collections.
 - **UC-7 (Email + Phone + Account)** achieves excellent performance (~6ms) as multiple selective conditions quickly narrow results.
-- **UC-5 (Geo search)** involves three fuzzy conditions plus exact match on state/ZIP, resulting in moderate latency (~118ms).
-- **UC-4 (Account + SSN)** performs well (~10ms) with domain index access on both account and identity collections.
-- **UC-1, UC-2, UC-3** achieve sub-25ms latency with phone-based queries providing good selectivity.
+- **UC-5 (Geo search)** involves three fuzzy conditions plus exact match on state/ZIP, resulting in moderate latency (~115ms).
+- **UC-4 (Account + SSN)** performs well (~6ms) with domain index access on both account and identity collections.
+- **UC-1, UC-2, UC-3** achieve sub-10ms latency with phone-based queries providing excellent selectivity.
+- **All UCs** use DOMAIN INDEX access via `json_textcontains()` for fuzzy text search, with HASH JOIN for efficient collection joins.
 
 ---
 
@@ -455,21 +456,21 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan:**
+**Query Plan (December 14, 2025):**
 ```
 -----------------------------------------------------------------------------------------------------------------
 | Id  | Operation                         | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
 -----------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                  |                     |    10 | 41150 |       |    21M  (1)| 00:14:07 |
+|   0 | SELECT STATEMENT                  |                     |    10 |   130 |       |    65M  (1)| 00:42:53 |
 |*  1 |  COUNT STOPKEY                    |                     |       |       |       |            |          |
-|   2 |   VIEW                            |                     |    20M|    78G|       |    21M  (1)| 00:14:07 |
-|*  3 |    SORT ORDER BY STOPKEY          |                     |    20M|   103G|   156G|    21M  (1)| 00:14:07 |
-|*  4 |     HASH JOIN                     |                     |    20M|   103G|       | 72990   (1)| 00:00:03 |
+|   2 |   VIEW                            |                     |    62M|   774M|       |    65M  (1)| 00:42:53 |
+|*  3 |    SORT ORDER BY STOPKEY          |                     |    62M|   315G|   476G|    65M  (1)| 00:42:53 |
+|*  4 |     HASH JOIN                     |                     |    62M|   315G|       | 73346   (1)| 00:00:03 |
 |   5 |      TABLE ACCESS BY INDEX ROWID  | phone               |  1250 |  2238K|       |   834   (0)| 00:00:01 |
 |*  6 |       DOMAIN INDEX                | IDX_PHONE_SEARCH    |       |       |       |     4   (0)| 00:00:01 |
-|*  7 |      HASH JOIN                    |                     |  1640K|  5621M|       | 72095   (1)| 00:00:03 |
-|   8 |       JOIN FILTER CREATE          | :BF0000             |   164 |   327K|       |   122   (0)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID| identity            |   164 |   327K|       |   122   (0)| 00:00:01 |
+|*  7 |      HASH JOIN                    |                     |  5000K|    16G|       | 72325   (1)| 00:00:03 |
+|   8 |       JOIN FILTER CREATE          | :BF0000             |   500 |   996K|       |   342   (0)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
 |* 10 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
 |  11 |       JOIN FILTER USE             | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
 |* 12 |        TABLE ACCESS STORAGE FULL  | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
@@ -478,6 +479,7 @@ FETCH FIRST 10 ROWS ONLY
 Predicate Information:
    6 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
   10 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
+  12 - filter(SYS_OP_BLOOM_FILTER(:BF0000,JSON_VALUE("DATA",'$._id.customerNumber')))
 ```
 
 ---
@@ -546,6 +548,35 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Query Plan (December 14, 2025):**
+```
+------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                          | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                   |                     |    10 |   130 |       |   767M  (1)| 08:19:26 |
+|*  1 |  COUNT STOPKEY                     |                     |       |       |       |            |          |
+|   2 |   VIEW                             |                     |   468M|  5811M|       |   767M  (1)| 08:19:26 |
+|*  3 |    SORT ORDER BY STOPKEY           |                     |   468M|  2823G|  3576G|   767M  (1)| 08:19:26 |
+|*  4 |     HASH JOIN                      |                     |   468M|  2823G|       | 74995   (3)| 00:00:03 |
+|   5 |      TABLE ACCESS BY INDEX ROWID   | phone               |  1250 |  2238K|       |   834   (0)| 00:00:01 |
+|*  6 |       DOMAIN INDEX                 | IDX_PHONE_SEARCH    |       |       |       |     4   (0)| 00:00:01 |
+|*  7 |      HASH JOIN                     |                     |    37M|   161G|       | 72765   (1)| 00:00:03 |
+|   8 |       TABLE ACCESS BY INDEX ROWID  | account             |   750 |   763K|       |   328   (0)| 00:00:01 |
+|*  9 |        DOMAIN INDEX                | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
+|* 10 |       HASH JOIN                    |                     |  5000K|    16G|       | 72325   (1)| 00:00:03 |
+|  11 |        JOIN FILTER CREATE          | :BF0000             |   500 |   996K|       |   342   (0)| 00:00:01 |
+|  12 |         TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
+|* 13 |          DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|  14 |        JOIN FILTER USE             | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|* 15 |         TABLE ACCESS STORAGE FULL  | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+------------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   6 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
+   9 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',3)>0)
+  13 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
+```
+
 ---
 
 ### UC-3: Phone + Account Last 4
@@ -611,6 +642,37 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Query Plan (December 14, 2025):**
+```
+-----------------------------------------------------------------------------------------------------------------
+| Id  | Operation                          | Name               | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+-----------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                   |                    |    10 |   130 |       |   309M (18)| 03:21:45 |
+|*  1 |  COUNT STOPKEY                     |                    |       |       |       |            |          |
+|   2 |   VIEW                             |                    |   937G|    11T|       |   309M (18)| 03:21:45 |
+|*  3 |    SORT ORDER BY STOPKEY           |                    |   937G|  5503T|  6984T|   309M (18)| 03:21:45 |
+|*  4 |     HASH JOIN                      |                    |   937G|  5503T|       |  3361K (91)| 00:02:12 |
+|   5 |      JOIN FILTER CREATE            | :BF0000            |  1250 |  2238K|       |   834   (0)| 00:00:01 |
+|   6 |       TABLE ACCESS BY INDEX ROWID  | phone              |  1250 |  2238K|       |   834   (0)| 00:00:01 |
+|*  7 |        DOMAIN INDEX                | IDX_PHONE_SEARCH   |       |       |       |     4   (0)| 00:00:01 |
+|*  8 |      HASH JOIN                     |                    |    75G|   315T|       |   570K (45)| 00:00:23 |
+|   9 |       JOIN FILTER CREATE           | :BF0001            |   750 |   763K|       |   328   (0)| 00:00:01 |
+|  10 |        TABLE ACCESS BY INDEX ROWID | account            |   750 |   763K|       |   328   (0)| 00:00:01 |
+|* 11 |         DOMAIN INDEX               | IDX_ACCOUNT_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|* 12 |       HASH JOIN                    |                    |    10G|    32T|  1489M|   347K  (9)| 00:00:14 |
+|  13 |        JOIN FILTER CREATE          | :BF0002            |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|  14 |         TABLE ACCESS STORAGE FULL  | address            |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|  15 |        JOIN FILTER USE             | :BF0000            |  1000K|  1935M|       | 93215   (1)| 00:00:04 |
+|  16 |         JOIN FILTER USE            | :BF0001            |  1000K|  1935M|       | 93215   (1)| 00:00:04 |
+|  17 |          JOIN FILTER USE           | :BF0002            |  1000K|  1935M|       | 93215   (1)| 00:00:04 |
+|* 18 |           TABLE ACCESS STORAGE FULL| identity           |  1000K|  1935M|       | 93215   (1)| 00:00:04 |
+-----------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   7 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
+  11 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',2)>0)
+```
+
 ---
 
 ### UC-4: Account Number + SSN (ends-with)
@@ -670,29 +732,30 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan:**
+**Query Plan (December 14, 2025):**
 ```
 -----------------------------------------------------------------------------------------------------------------
 | Id  | Operation                         | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
 -----------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                  |                     |    10 | 41150 |       |    11M  (1)| 00:07:16 |
+|   0 | SELECT STATEMENT                  |                     |    10 |   130 |       |    33M  (1)| 00:22:01 |
 |*  1 |  COUNT STOPKEY                    |                     |       |       |       |            |          |
-|   2 |   VIEW                            |                     |    12M|    47G|       |    11M  (1)| 00:07:16 |
-|*  3 |    SORT ORDER BY STOPKEY          |                     |    12M|    53G|    93G|    11M  (1)| 00:07:16 |
-|*  4 |     HASH JOIN                     |                     |    12M|    53G|       | 72455   (1)| 00:00:03 |
-|   5 |      JOIN FILTER CREATE           | :BF0000             |  1230 |  3706K|       |   450   (0)| 00:00:01 |
-|*  6 |       HASH JOIN                   |                     |  1230 |  3706K|       |   450   (0)| 00:00:01 |
-|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   164 |   327K|       |   122   (0)| 00:00:01 |
-|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|       |   328   (0)| 00:00:01 |
-|* 10 |         DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
-|  11 |      JOIN FILTER USE              | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
-|* 12 |       TABLE ACCESS STORAGE FULL   | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|   2 |   VIEW                            |                     |    37M|   464M|       |    33M  (1)| 00:22:01 |
+|*  3 |    SORT ORDER BY STOPKEY          |                     |    37M|   161G|   286G|    33M  (1)| 00:22:01 |
+|*  4 |     HASH JOIN                     |                     |    37M|   161G|       | 72765   (1)| 00:00:03 |
+|   5 |      TABLE ACCESS BY INDEX ROWID  | account             |   750 |   763K|       |   328   (0)| 00:00:01 |
+|*  6 |       DOMAIN INDEX                | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
+|*  7 |      HASH JOIN                    |                     |  5000K|    16G|       | 72325   (1)| 00:00:03 |
+|   8 |       JOIN FILTER CREATE          | :BF0000             |   500 |   996K|       |   342   (0)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|  11 |       JOIN FILTER USE             | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|* 12 |        TABLE ACCESS STORAGE FULL  | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
 -----------------------------------------------------------------------------------------------------------------
 
 Predicate Information:
-   8 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
-  10 - access("CTXSYS"."CONTAINS"("account"."DATA",'(100000375005) INPATH (/accountKey/accountNumber)',1)>0)
+   6 - access("CTXSYS"."CONTAINS"("account"."DATA",'(100000375005) INPATH (/accountKey/accountNumber)',1)>0)
+  10 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
+  12 - filter(SYS_OP_BLOOM_FILTER(:BF0000,JSON_VALUE("DATA",'$._id.customerNumber')))
 ```
 
 ---
@@ -759,6 +822,40 @@ FETCH FIRST 10 ROWS ONLY
 
 **Note:** City search uses `$.addresses.cityName` (without array index) to match any element in the addresses array.
 
+**Query Plan (December 14, 2025):**
+```
+----------------------------------------------------------------------------------------------------------------
+| Id  | Operation                                | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
+----------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                         |                     |     1 |    13 |   682   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                           |                     |       |       |            |          |
+|   2 |   VIEW                                   |                     |     1 |    13 |   682   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY                 |                     |     1 |  4645 |   682   (1)| 00:00:01 |
+|*  4 |     HASH JOIN                            |                     |     1 |  4645 |   681   (1)| 00:00:01 |
+|*  5 |      HASH JOIN                           |                     |     1 |  3603 |   353   (1)| 00:00:01 |
+|*  6 |       TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |  1562 |    10  (20)| 00:00:01 |
+|   7 |        BITMAP CONVERSION TO ROWIDS       |                     |       |       |            |          |
+|   8 |         BITMAP AND                       |                     |       |       |            |          |
+|   9 |          BITMAP CONVERSION FROM ROWIDS   |                     |       |       |            |          |
+|  10 |           SORT ORDER BY                  |                     |       |       |            |          |
+|* 11 |            DOMAIN INDEX                  | IDX_ADDRESS_SEARCH  |       |       |     4   (0)| 00:00:01 |
+|  12 |          BITMAP CONVERSION FROM ROWIDS   |                     |       |       |            |          |
+|  13 |           SORT ORDER BY                  |                     |       |       |            |          |
+|* 14 |            DOMAIN INDEX                  | IDX_ADDRESS_SEARCH  |       |       |     4   (0)| 00:00:01 |
+|  15 |       TABLE ACCESS BY INDEX ROWID        | identity            |   500 |   996K|   342   (0)| 00:00:01 |
+|* 16 |        DOMAIN INDEX                      | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
+|  17 |      TABLE ACCESS BY INDEX ROWID         | account             |   750 |   763K|   328   (0)| 00:00:01 |
+|* 18 |       DOMAIN INDEX                       | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |
+----------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   6 - filter(JSON_VALUE("DATA",'$.addresses.stateCode')='CA' AND JSON_VALUE("DATA",'$.addresses.postalCode')='54717')
+  11 - access("CTXSYS"."CONTAINS"("address"."DATA",'{54717} INPATH (/addresses/postalCode)')>0)
+  14 - access("CTXSYS"."CONTAINS"("address"."DATA",'{CA} INPATH (/addresses/stateCode)')>0)
+  16 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
+  18 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',3)>0)
+```
+
 ---
 
 ### UC-6: Email + Account Last 4
@@ -820,30 +917,33 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan:**
+**Query Plan (December 14, 2025):**
 ```
 -----------------------------------------------------------------------------------------------------------------
 | Id  | Operation                         | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
 -----------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                  |                     |    10 | 41150 |       |    11M  (1)| 00:07:16 |
+|   0 | SELECT STATEMENT                  |                     |    10 |   130 |       |    33M  (1)| 00:22:01 |
 |*  1 |  COUNT STOPKEY                    |                     |       |       |       |            |          |
-|   2 |   VIEW                            |                     |    12M|    47G|       |    11M  (1)| 00:07:16 |
-|*  3 |    SORT ORDER BY STOPKEY          |                     |    12M|    53G|    93G|    11M  (1)| 00:07:16 |
-|*  4 |     HASH JOIN                     |                     |    12M|    53G|       | 72455   (1)| 00:00:03 |
-|   5 |      JOIN FILTER CREATE           | :BF0000             |  1230 |  3706K|       |   450   (0)| 00:00:01 |
-|*  6 |       HASH JOIN                   |                     |  1230 |  3706K|       |   450   (0)| 00:00:01 |
-|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   164 |   327K|       |   122   (0)| 00:00:01 |
-|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|       |   328   (0)| 00:00:01 |
-|* 10 |         DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
-|  11 |      JOIN FILTER USE              | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
-|* 12 |       TABLE ACCESS STORAGE FULL   | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|   2 |   VIEW                            |                     |    37M|   464M|       |    33M  (1)| 00:22:01 |
+|*  3 |    SORT ORDER BY STOPKEY          |                     |    37M|   161G|   286G|    33M  (1)| 00:22:01 |
+|*  4 |     HASH JOIN                     |                     |    37M|   161G|       | 72765   (1)| 00:00:03 |
+|   5 |      TABLE ACCESS BY INDEX ROWID  | account             |   750 |   763K|       |   328   (0)| 00:00:01 |
+|*  6 |       DOMAIN INDEX                | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
+|*  7 |      HASH JOIN                    |                     |  5000K|    16G|       | 72325   (1)| 00:00:03 |
+|   8 |       JOIN FILTER CREATE          | :BF0000             |   500 |   996K|       |   342   (0)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|  11 |       JOIN FILTER USE             | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|* 12 |        TABLE ACCESS STORAGE FULL  | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
 -----------------------------------------------------------------------------------------------------------------
 
 Predicate Information:
-   8 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(ashields) INPATH (/emails/emailAddress)',1)>0)
-  10 - access("CTXSYS"."CONTAINS"("account"."DATA",'(%5005) INPATH (/accountKey/accountNumberLast4)',2)>0)
+   6 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',1)>0)
+  10 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(ashields) INPATH (/emails/emailAddress)',2)>0)
+  12 - filter(SYS_OP_BLOOM_FILTER(:BF0000,JSON_VALUE("DATA",'$._id.customerNumber')))
 ```
+
+**Note:** Uses direct match `5005` instead of wildcard `%5005` for accountNumberLast4 per Oracle team optimization.
 
 ---
 
@@ -909,6 +1009,36 @@ FROM joined j
 ORDER BY j.combined_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Query Plan (December 14, 2025):**
+```
+------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                          | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                   |                     |    10 |   130 |       |   767M  (1)| 08:19:26 |
+|*  1 |  COUNT STOPKEY                     |                     |       |       |       |            |          |
+|   2 |   VIEW                             |                     |   468M|  5811M|       |   767M  (1)| 08:19:26 |
+|*  3 |    SORT ORDER BY STOPKEY           |                     |   468M|  2823G|  3576G|   767M  (1)| 08:19:26 |
+|*  4 |     HASH JOIN                      |                     |   468M|  2823G|       | 74995   (3)| 00:00:03 |
+|   5 |      TABLE ACCESS BY INDEX ROWID   | phone               |  1250 |  2238K|       |   834   (0)| 00:00:01 |
+|*  6 |       DOMAIN INDEX                 | IDX_PHONE_SEARCH    |       |       |       |     4   (0)| 00:00:01 |
+|*  7 |      HASH JOIN                     |                     |    37M|   161G|       | 72765   (1)| 00:00:03 |
+|   8 |       TABLE ACCESS BY INDEX ROWID  | account             |   750 |   763K|       |   328   (0)| 00:00:01 |
+|*  9 |        DOMAIN INDEX                | IDX_ACCOUNT_SEARCH  |       |       |       |     4   (0)| 00:00:01 |
+|* 10 |       HASH JOIN                    |                     |  5000K|    16G|       | 72325   (1)| 00:00:03 |
+|  11 |        JOIN FILTER CREATE          | :BF0000             |   500 |   996K|       |   342   (0)| 00:00:01 |
+|  12 |         TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
+|* 13 |          DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|  14 |        JOIN FILTER USE             | :BF0000             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+|* 15 |         TABLE ACCESS STORAGE FULL  | address             |  1000K|  1478M|       | 71968   (1)| 00:00:03 |
+------------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   6 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',2)>0)
+   9 - access("CTXSYS"."CONTAINS"("account"."DATA",'(100000375005) INPATH (/accountKey/accountNumber)',3)>0)
+  13 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(ashields) INPATH (/emails/emailAddress)',1)>0)
+  15 - filter(SYS_OP_BLOOM_FILTER(:BF0000,JSON_VALUE("DATA",'$._id.customerNumber')))
 ```
 
 ---
