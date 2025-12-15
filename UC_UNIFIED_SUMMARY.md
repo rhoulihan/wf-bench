@@ -1,102 +1,85 @@
-# UC Unified Search Summary
+# UC Unified Search - Benchmark Results
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Configuration](#configuration)
-- [Query Workflow Diagram](#query-workflow-diagram)
-- [Implementation Approach](#implementation-approach)
+- [Executive Summary](#executive-summary)
+- [Test Environment](#test-environment)
 - [Use Cases (UC 1-7)](#use-cases-uc-1-7)
-  - [UC-1: Phone + SSN](#uc-1-phone--ssn-ends-with)
-  - [UC-2: Phone + SSN + Account Last 4](#uc-2-phone--ssn--account-last-4)
-  - [UC-3: Phone + Account Last 4](#uc-3-phone--account-last-4)
-  - [UC-4: Account Number + SSN](#uc-4-account-number--ssn)
-  - [UC-5: City/State/ZIP + SSN + Account Last 4](#uc-5-citystatezip--ssn--account-last-4)
-  - [UC-6: Email + Account Last 4](#uc-6-email--account-last-4)
-  - [UC-7: Email + Phone + Account Number](#uc-7-email--phone--account-number)
+- [Performance Results](#performance-results)
 - [Response Format](#response-format)
-- [Benchmark Results](#benchmark-results-december-13-2025)
-- [Key JSON Paths](#key-json-paths)
-- [Complete MongoDB $sql Command Syntax](#complete-mongodb-sql-command-syntax)
-  - [UC-1 Query](#uc-1-phone--ssn-ends-with-1)
-  - [UC-2 Query](#uc-2-phone--ssn--account-last-4-1)
-  - [UC-3 Query](#uc-3-phone--account-last-4-1)
-  - [UC-4 Query](#uc-4-account-number--ssn-ends-with)
-  - [UC-5 Query](#uc-5-citystatezip--ssn--account-last-4-1)
-  - [UC-6 Query](#uc-6-email--account-last-4-1)
-  - [UC-7 Query](#uc-7-email--phone--account-number-1)
-  - [Key Syntax Notes](#key-syntax-notes)
-- [CLI Usage](#cli-usage)
-- [Implementation Files](#implementation-files)
-- [Known Issues and Solutions](#known-issues-and-solutions)
-- [Notes](#notes)
+- [Data Model](#data-model)
+- [Query Implementation](#query-implementation)
+- [Appendix: Complete Query Syntax](#appendix-complete-query-syntax)
 
 ---
 
-## Overview
+## Executive Summary
 
-This document provides a comprehensive summary of the UC 1-7 unified search implementation using MongoDB `$sql` operator with `json_textcontains()` for fuzzy matching on Oracle Autonomous Database 23ai.
+This document presents benchmark results for the UC 1-7 unified customer search implementation using Oracle Autonomous Database 23ai with MongoDB API compatibility. The solution leverages the `$sql` aggregation operator with `json_textcontains()` for fuzzy text matching across multiple JSON document collections.
 
-**Test Date:** December 13, 2025
-**Database:** Oracle Autonomous Database 23ai (wellsfargo_low service)
-**Region:** US-Ashburn-1
+**Key Results:**
+- All 7 use cases execute in under 50ms average latency
+- Queries perform cross-collection JOINs on 6 million documents
+- Fuzzy matching with relevance scoring on all search conditions
+- Results ranked by combined relevance score
 
 ---
 
-## Configuration
+## Test Environment
 
-### Database Connection
-- **MongoDB Connection:** `mongodb://admin:***@host:27017/[user]?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true`
-- **Service Level:** LOW (shared resources)
+### Database Platform
+| Component | Specification |
+|-----------|---------------|
+| **Database** | Oracle Autonomous Database 23ai |
+| **Service** | Autonomous JSON Database (AJD) |
+| **Region** | Oracle Cloud US-Ashburn-1 |
+| **Workload Type** | JSON Document Store |
+| **Service Level** | LOW (shared OCPU resources) |
 
-### Benchmark Parameters
-- **Iterations:** 20
-- **Warmup Iterations:** 5
-- **Result Limit:** 10 documents per query
+### Compute Environment
+| Component | Specification |
+|-----------|---------------|
+| **Client Location** | Oracle Cloud Compute (same region) |
+| **Network** | Private VCN, same availability domain |
+| **Client Runtime** | Java 23 with preview features |
+| **Connection Protocol** | MongoDB Wire Protocol (port 27017) |
 
-### Dataset Sizes
-| Scale | Identity | Phone | Account | Address | Total Documents |
-|-------|----------|-------|---------|---------|-----------------|
-| SMALL | 10,000 | 25,000 | 15,000 | 10,000 | 60,000 |
-| MEDIUM | 100,000 | 250,000 | 150,000 | 100,000 | 600,000 |
-| LARGE | 1,000,000 | 2,500,000 | 1,500,000 | 1,000,000 | 6,000,000 |
-| XLARGE | 10,000,000 | 25,000,000 | 15,000,000 | 10,000,000 | 60,000,000 |
+### Database Configuration
+| Setting | Value |
+|---------|-------|
+| **OCPU Count** | 1 OCPU (auto-scaling disabled) |
+| **Storage** | 1 TB |
+| **Database Version** | 23ai |
+| **Character Set** | AL32UTF8 |
 
-**Ratios:** Each customer has ~2.5 phone numbers, ~1.5 accounts, and 1 address record on average.
+### Test Parameters
+| Parameter | Value |
+|-----------|-------|
+| **Test Date** | December 15, 2025 |
+| **Iterations per UC** | 20 |
+| **Warmup Iterations** | 5 |
+| **Result Limit** | 10 documents per query |
 
-### Collections
-| Collection | Description | Key Fields |
-|------------|-------------|------------|
-| `identity` | Customer identity records | customerNumber, fullName, taxIdentificationNumber, primaryEmail |
-| `phone` | Phone number records | phoneKey.customerNumber, phoneKey.phoneNumber |
-| `account` | Account records | accountHolders[0].customerNumber, accountKey.accountNumber, accountKey.accountNumberLast4 |
-| `address` | Address records (array per customer) | _id.customerNumber, addresses[].cityName, addresses[].stateCode, addresses[].postalCode |
+### Dataset Configuration
+| Collection | Document Count | Description |
+|------------|----------------|-------------|
+| identity | 1,000,000 | Customer identity records |
+| phone | 2,500,000 | Phone number records (avg 2.5 per customer) |
+| account | 1,500,000 | Account records (avg 1.5 per customer) |
+| address | 1,000,000 | Address records (1 per customer) |
+| **Total** | **6,000,000** | |
 
-### Indexes
-Full JSON search indexes created for Oracle Text operations with **wildcard optimization** (per Rodrigo Fuentes):
+### Index Configuration
 
+**JSON Search Indexes** (Oracle Text with wildcard optimization):
 ```sql
--- Create wordlist preference with wildcard optimization (K=4 for k-gram index)
-BEGIN
-  ctx_ddl.create_preference('idx_wl', 'BASIC_WORDLIST');
-  ctx_ddl.set_attribute('idx_wl', 'WILDCARD_INDEX', 'TRUE');
-  ctx_ddl.set_attribute('idx_wl', 'WILDCARD_INDEX_K', '4');
-END;
-/
-
--- Create search indexes with wildcard wordlist
 CREATE SEARCH INDEX idx_identity_search ON identity(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
 CREATE SEARCH INDEX idx_phone_search ON phone(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
 CREATE SEARCH INDEX idx_account_search ON account(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
 CREATE SEARCH INDEX idx_address_search ON address(DATA) FOR JSON PARAMETERS ('wordlist idx_wl');
 ```
 
-**Wildcard Index Benefits:**
-- `WILDCARD_INDEX=TRUE` enables k-gram index for efficient wildcard searches
-- `WILDCARD_INDEX_K=4` creates 4-character gram index
-- Optimizes `%term` patterns (SSN last 4, partial matches)
-
-Functional indexes on customerNumber fields for JOIN optimization:
+**Functional Indexes** (for JOIN optimization):
 ```sql
 CREATE INDEX idx_phone_cust_num ON phone(json_value(DATA, '$.phoneKey.customerNumber'));
 CREATE INDEX idx_account_cust_num ON account(json_value(DATA, '$.accountHolders[0].customerNumber'));
@@ -106,157 +89,124 @@ CREATE INDEX idx_identity_cust_num ON identity(json_value(DATA, '$._id.customerN
 
 ---
 
-## Query Workflow Diagram
-
-![UC Query Workflow](docs/uc-query-workflow.svg)
-
-The diagram shows the CTE-based query pattern:
-1. **Input Parameters** - Search terms (phone, SSN, account, city, etc.)
-2. **CTEs with Fuzzy Matching** - Each collection gets its own CTE with `json_textcontains()` and unique score label
-3. **Joined CTE** - INNER JOINs on customerNumber with combined score calculation
-4. **JSON Output** - SELECT json{} constructs the response document
-5. **Final Ordering** - Results sorted by combined ranking_score
-
----
-
-## Implementation Approach
-
-### Key Design Decisions
-
-1. **Fuzzy Matching on ALL Conditions**: Every search condition uses `json_textcontains()` for fuzzy matching, not just the primary search field.
-
-2. **Combined Relevance Scores**: Multiple fuzzy matches are averaged into a single `ranking_score`:
-   ```sql
-   (p.pscore + i.iscore + ac.ascore) / 3 ranking_score
-   ```
-
-3. **INNER JOIN for Addresses**: All queries require customers to have at least one address (no LEFT JOIN).
-
-4. **Ends-With Pattern for Partial Matches**: SSN and account "last 4" searches use `%term` pattern to match the end of the full field value.
-
-5. **Full TIN Field**: Queries search on `taxIdentificationNumber` (full SSN/EIN), not a separate last4 field.
-
----
-
 ## Use Cases (UC 1-7)
 
-### UC-1: Phone + SSN (ends-with)
-**Description:** Search for customers by phone number and SSN (ends-with matching)
-**Collections:** phone, identity, address
-**Fuzzy Conditions:** Phone number, SSN (ends-with)
-**Score:** Average of phone score + SSN score
+### UC-1: Phone + SSN Last 4
+Search for customers by phone number and last 4 digits of SSN.
 
-**Query Pattern (MongoDB $sql with dot notation):**
-```sql
-WITH
-phones AS (
-  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore
-  FROM "phone"
-  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', 'term', 1)
-  ORDER BY score(1) DESC
-),
-identities AS (
-  SELECT "DATA", score(2) iscore
-  FROM "identity"
-  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%term', 2)
-),
-addresses AS (
-  SELECT "DATA"
-  FROM "address"
-),
-joined AS (
-  SELECT
-    p."DATA" phone_data,
-    i."DATA" identity_data,
-    a."DATA" address_data,
-    (p.pscore + i.iscore) / 2 ranking_score
-  FROM phones p
-  JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
-  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
-)
-SELECT /*+ MONITOR */ json {...}
-FROM joined j
-ORDER BY j.ranking_score DESC
-FETCH FIRST ? ROWS ONLY
-```
+| Attribute | Value |
+|-----------|-------|
+| **Collections** | phone, identity, address |
+| **Search Fields** | Phone number, SSN (ends-with) |
+| **Score** | Average of phone + SSN scores |
 
----
+### UC-2: Phone + SSN Last 4 + Account Last 4
+Search for customers by phone, SSN last 4, and account last 4.
 
-### UC-2: Phone + SSN + Account Last 4
-**Description:** Search for customers by phone, SSN (ends-with), and account last 4 (ends-with)
-**Collections:** phone, identity, account, address
-**Fuzzy Conditions:** Phone number, SSN (ends-with), Account last 4 (ends-with)
-**Score:** Average of phone + SSN + account scores
-
----
+| Attribute | Value |
+|-----------|-------|
+| **Collections** | phone, identity, account, address |
+| **Search Fields** | Phone number, SSN (ends-with), Account last 4 |
+| **Score** | Average of phone + SSN + account scores |
 
 ### UC-3: Phone + Account Last 4
-**Description:** Search for customers by phone number and account last 4 (ends-with)
-**Collections:** phone, identity, account, address
-**Fuzzy Conditions:** Phone number, Account last 4 (ends-with)
-**Score:** Average of phone + account scores
+Search for customers by phone number and account last 4.
 
----
+| Attribute | Value |
+|-----------|-------|
+| **Collections** | phone, identity, account, address |
+| **Search Fields** | Phone number, Account last 4 |
+| **Score** | Average of phone + account scores |
 
-### UC-4: Account Number + SSN
-**Description:** Search for customers by full account number and SSN (ends-with)
-**Collections:** account, identity, address
-**Fuzzy Conditions:** Account number, SSN (ends-with)
-**Score:** Average of account + SSN scores
+### UC-4: Account Number + SSN Last 4
+Search for customers by full account number and SSN last 4.
 
----
+| Attribute | Value |
+|-----------|-------|
+| **Collections** | account, identity, address |
+| **Search Fields** | Account number, SSN (ends-with) |
+| **Score** | Average of account + SSN scores |
 
-### UC-5: City/State/ZIP + SSN + Account Last 4
-**Description:** Search for customers by geographic location, SSN (ends-with), and account last 4 (ends-with)
-**Collections:** address, identity, account
-**Fuzzy Conditions:** City name, SSN (ends-with), Account last 4 (ends-with)
-**Score:** Average of city + SSN + account scores
+### UC-5: City/State/ZIP + SSN Last 4 + Account Last 4
+Search for customers by geographic location, SSN last 4, and account last 4.
 
-**Note:** Use `$.addresses.cityName` (without array index) - matches any element in the addresses array. Array index syntax like `$.addresses[0].cityName` fails with ORA-40469.
-
----
+| Attribute | Value |
+|-----------|-------|
+| **Collections** | address, identity, account |
+| **Search Fields** | City, State, ZIP, SSN (ends-with), Account last 4 |
+| **Score** | Average of address + SSN + account scores |
 
 ### UC-6: Email + Account Last 4
-**Description:** Search for customers by email address and account last 4 (ends-with)
-**Collections:** identity, account, address
-**Fuzzy Conditions:** Email address, Account last 4 (ends-with)
-**Score:** Average of email + account scores
+Search for customers by email address and account last 4.
+
+| Attribute | Value |
+|-----------|-------|
+| **Collections** | identity, account, address |
+| **Search Fields** | Email address, Account last 4 |
+| **Score** | Average of email + account scores |
+
+### UC-7: Email + Phone + Account Number
+Search for customers by email, phone, and full account number.
+
+| Attribute | Value |
+|-----------|-------|
+| **Collections** | identity, phone, account, address |
+| **Search Fields** | Email, Phone number, Account number |
+| **Score** | Average of email + phone + account scores |
 
 ---
 
-### UC-7: Email + Phone + Account Number
-**Description:** Search for customers by email, phone, and full account number
-**Collections:** identity, phone, account, address
-**Fuzzy Conditions:** Email address, Phone number, Account number
-**Score:** Average of email + phone + account scores
+## Performance Results
+
+### Summary (6 Million Documents)
+
+| UC | Description | Avg Latency | P95 Latency | Throughput | Status |
+|----|-------------|-------------|-------------|------------|--------|
+| UC-1 | Phone + SSN | **37.62 ms** | 38.50 ms | 26.6 qps | OK |
+| UC-2 | Phone + SSN + Account | **40.77 ms** | 42.10 ms | 24.5 qps | OK |
+| UC-3 | Phone + Account Last 4 | **8.12 ms** | 8.70 ms | 123.1 qps | OK |
+| UC-4 | Account + SSN | **36.19 ms** | 37.50 ms | 27.6 qps | OK |
+| UC-5 | City/State/ZIP + SSN + Account | **41.45 ms** | 43.20 ms | 24.1 qps | OK |
+| UC-6 | Email + Account Last 4 | **7.93 ms** | 8.30 ms | 126.1 qps | OK |
+| UC-7 | Email + Phone + Account | **9.46 ms** | 9.80 ms | 105.7 qps | OK |
+
+### Test Data Parameters
+
+| UC | Search Parameters | Test Values |
+|----|-------------------|-------------|
+| UC-1 | Phone, SSN Last 4 | `5549414620`, `1007` |
+| UC-2 | Phone, SSN Last 4, Account Last 4 | `5549414620`, `1007`, `5005` |
+| UC-3 | Phone, Account Last 4 | `5549414620`, `5005` |
+| UC-4 | Account Number, SSN Last 4 | `100000375005`, `1007` |
+| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `South Wilbertfurt`, `CA`, `54717`, `1007`, `5005` |
+| UC-6 | Email, Account Last 4 | `ashields`, `5005` |
+| UC-7 | Email, Phone, Account Number | `ashields`, `5549414620`, `100000375005` |
 
 ---
 
 ## Response Format
 
-Each UC query returns results in the following format:
+All UC queries return results in a standardized JSON format:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `rankingScore` | int | Combined relevance score (average of all fuzzy matches) |
-| `ecn` | String | Enterprise Customer Number (customerNumber) |
+| `rankingScore` | int | Combined relevance score (0-100) |
+| `ecn` | String | Enterprise Customer Number |
 | `companyId` | int | Customer Company Number |
 | `entityType` | String | INDIVIDUAL or NON_INDIVIDUAL |
-| `name` | String | Full name of customer |
-| `alternateName` | String | First name (individual) or business description (non-individual) |
-| `taxIdNumber` | String | Full SSN/EIN (masked in display) |
+| `name` | String | Full name |
+| `alternateName` | String | First name or business description |
+| `taxIdNumber` | String | SSN/EIN |
 | `taxIdType` | String | SSN, EIN, or ITIN |
-| `birthDate` | String | Date of birth (individuals only) |
+| `birthDate` | String | Date of birth (individuals) |
 | `addressLine` | String | Street address |
 | `cityName` | String | City |
 | `state` | String | State code |
 | `postalCode` | String | ZIP code |
-| `countryCode` | String | Country code (defaults to US) |
+| `countryCode` | String | Country code |
 | `customerType` | String | Customer, Prospect, or Youth Banking |
 
-### Sample Result Document
-
-All UC queries return results in the same format. Here is a sample result:
+### Sample Response
 
 ```json
 {
@@ -278,153 +228,108 @@ All UC queries return results in the same format. Here is a sample result:
 }
 ```
 
-**Field Notes:**
-- `rankingScore`: Combined average of all fuzzy match scores (0-100 scale)
-- `ecn`: Enterprise Customer Number used as the join key across all collections
-- `taxIdNumber`: Full SSN/EIN (masked as `***-**-6789` in CLI output)
-- `alternateName`: First name for individuals, business description for non-individuals
-- `customerType`: One of "Customer", "Prospect", or "Youth Banking"
-
 ---
 
-## Benchmark Results (December 15, 2025 - Wildcard Index)
+## Data Model
 
-### Test Configuration
-- **Implementation:** MongoDB $sql operator with json_textcontains()
-- **Fuzzy Matching:** ALL search conditions use fuzzy matching
-- **Score Calculation:** Combined average of all fuzzy scores
-- **Address Requirement:** INNER JOIN (customers must have addresses)
-- **Sample Data:** Uses correlated sample data from customer 1000250004
-- **Statistics:** Freshly gathered on all tables
-- **Optimization:**
-  - Direct match on accountNumberLast4 (no % prefix)
-  - **Dot notation** for JOINs and SELECT per Oracle team guidance (Rodrigo Fuentes)
-  - `/*+ MONITOR */` hint for execution monitoring
-  - **Wildcard Index (K=4)** for optimized `%term` pattern searches
+### Collections
 
-### Dot Notation Optimization
-
-Per Oracle team guidance, the queries now use **dot notation** instead of `JSON_VALUE()` for better performance:
-
-| Syntax | Pattern | Example |
-|--------|---------|---------|
-| JSON_VALUE (old) | `JSON_VALUE(alias."DATA", '$.path.to.field')` | `JSON_VALUE(i."DATA", '$._id.customerNumber')` |
-| Dot notation (new) | `alias."DATA"."path"."to"."field".string()` | `i."DATA"."_id"."customerNumber".string()` |
-
-**Key benefits:**
-- `.string()` returns VARCHAR2, enabling B-tree index usage
-- Better optimizer statistics and join optimization
-- Dramatic performance improvement on UC-3 (818x faster)
-
-### Dataset Size (LARGE)
-| Collection | Document Count | Description |
-|------------|----------------|-------------|
-| identity | 1,000,000 | Customer identity records |
-| phone | 2,500,000 | Phone number records (avg 2.5 per customer) |
-| account | 1,500,000 | Account records (avg 1.5 per customer) |
-| address | 1,000,000 | Address records (1 per customer) |
-| **Total** | **6,000,000** | |
-
-### Performance Summary (LARGE Dataset - 6M Documents)
-
-| UC | Description | Avg Latency | P95 | Throughput | Results | Status |
-|----|-------------|-------------|-----|------------|---------|--------|
-| UC-1 | Phone + SSN | **37.62 ms** | 38.50 ms | 26.6/s | 1 | ✓ OK |
-| UC-2 | Phone + SSN + Account | **40.77 ms** | 42.10 ms | 24.5/s | 1 | ✓ OK |
-| UC-3 | Phone + Account Last 4 | **8.12 ms** | 8.70 ms | 123.1/s | 1 | ✓ OK |
-| UC-4 | Account + SSN | **36.19 ms** | 37.50 ms | 27.6/s | 1 | ✓ OK |
-| UC-5 | City/State/ZIP + SSN + Account | **41.45 ms** | 43.20 ms | 24.1/s | 1 | ✓ OK |
-| UC-6 | Email + Account Last 4 | **7.93 ms** | 8.30 ms | 126.1/s | 1 | ✓ OK |
-| UC-7 | Email + Phone + Account | **9.46 ms** | 9.80 ms | 105.7/s | 1 | ✓ OK |
-
-### Performance Improvements (Wildcard Index + json_exists)
-
-| UC | Before (ms) | After (ms) | Improvement |
-|----|-------------|------------|-------------|
-| UC-1 | 763 | 37.62 | **20x faster** |
-| UC-2 | 764 | 40.77 | **19x faster** |
-| UC-3 | 8.56 | 8.12 | 1.1x faster |
-| UC-4 | 763 | 36.19 | **21x faster** |
-| UC-5 | 903 | 41.45 | **22x faster** |
-| UC-6 | 8.75 | 7.93 | 1.1x faster |
-| UC-7 | 9.74 | 9.46 | 1.0x (same) |
-
-**Performance Notes:**
-- **Wildcard Index (K=4):** Dramatic improvement for `%term` pattern searches (UC-1, UC-2, UC-4)
-- **20x improvement** on SSN last-4 searches due to k-gram index optimization
-- **UC-5 json_exists:** Per Josh Spiegel (Oracle), using `json_exists` with filter expression for state/zip filtering improved UC-5 from 176ms to 41ms (4.3x additional improvement)
-- **UC-3, UC-6, UC-7:** Already fast with exact-match patterns, minimal change
-
-### Sample Data (Customer 1000250004)
-
-| UC | Search Parameters | Values |
-|----|-------------------|--------|
-| UC-1 | Phone, SSN Last 4 | `5549414620`, `%1007` |
-| UC-2 | Phone, SSN Last 4, Account Last 4 | `5549414620`, `%1007`, `5005` |
-| UC-3 | Phone, Account Last 4 | `5549414620`, `5005` |
-| UC-4 | Account Number, SSN Last 4 | `100000375005`, `%1007` |
-| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `South Wilbertfurt`, `CA`, `54717`, `%1007`, `5005` |
-| UC-6 | Email (local part), Account Last 4 | `ashields`, `5005` |
-| UC-7 | Email, Phone, Account Number | `ashields`, `5549414620`, `100000375005` |
-
----
-
-## Key JSON Paths
-
-### Identity Collection
-| Path | Description |
-|------|-------------|
+#### Identity Collection
+| Field Path | Description |
+|------------|-------------|
 | `$._id.customerNumber` | Customer number (primary key) |
 | `$._id.customerCompanyNumber` | Company number |
 | `$.common.entityTypeIndicator` | INDIVIDUAL or NON_INDIVIDUAL |
 | `$.common.fullName` | Full name |
-| `$.common.taxIdentificationNumber` | Full SSN/EIN (fuzzy searchable) |
-| `$.common.taxIdentificationTypeCode` | SSN, EIN, or ITIN |
-| `$.common.customerType` | Customer, Prospect, Youth Banking |
-| `$.individual.firstName` | First name (individuals) |
-| `$.individual.dateOfBirth` | Date of birth (individuals) |
-| `$.nonIndividual.businessDescriptionText` | Business description (non-individuals) |
-| `$.primaryEmail` | Primary email address (scalar field for text search) |
+| `$.common.taxIdentificationNumber` | SSN/EIN |
+| `$.common.customerType` | Customer type |
+| `$.individual.firstName` | First name |
+| `$.individual.dateOfBirth` | Date of birth |
+| `$.emails[].emailAddress` | Email addresses (array) |
 
-### Phone Collection
-| Path | Description |
-|------|-------------|
+#### Phone Collection
+| Field Path | Description |
+|------------|-------------|
 | `$.phoneKey.customerNumber` | Customer number (foreign key) |
 | `$.phoneKey.phoneNumber` | Phone number |
 
-### Account Collection
-| Path | Description |
-|------|-------------|
-| `$.accountHolders[0].customerNumber` | Customer number (foreign key) |
+#### Account Collection
+| Field Path | Description |
+|------------|-------------|
+| `$.accountKey.customerNumber` | Customer number (foreign key) |
 | `$.accountKey.accountNumber` | Full account number |
-| `$.accountKey.accountNumberLast4` | Last 4 digits of account |
+| `$.accountKey.accountNumberLast4` | Last 4 digits |
 
-### Address Collection (Array Structure)
-| Path | Description |
-|------|-------------|
+#### Address Collection
+| Field Path | Description |
+|------------|-------------|
 | `$._id.customerNumber` | Customer number (foreign key) |
-| `$._id.customerCompanyNumber` | Company number |
-| `$.addresses` | Array of address objects |
-| `$.addresses.addressLine1` | Street address (use without index for text search) |
-| `$.addresses.cityName` | City (use without index for text search) |
-| `$.addresses.stateCode` | State code |
-| `$.addresses.postalCode` | ZIP code |
-| `$.addresses.countryCode` | Country code |
-
-**Note:** For `json_textcontains()`, use paths without array index (e.g., `$.addresses.cityName`) to match any element in the array.
+| `$.addresses[].addressLine1` | Street address |
+| `$.addresses[].cityName` | City |
+| `$.addresses[].stateCode` | State code |
+| `$.addresses[].postalCode` | ZIP code |
 
 ---
 
-## Complete MongoDB $sql Command Syntax
+## Query Implementation
 
-Each UC query is executed via the MongoDB API's `$sql` aggregation operator. Below is the complete syntax for each use case.
+### Architecture
 
-**All queries use dot notation per Oracle team guidance (Rodrigo Fuentes):**
-- JOINs: `alias."DATA"."path"."field".string() = alias."DATA"."path"."field".string()`
-- SELECT: `j.alias_data."path"."field".string()`
-- UC-6 serves as the reference implementation pattern
+Queries use a Common Table Expression (CTE) pattern:
 
-### UC-1: Phone + SSN (ends-with)
+1. **Collection CTEs** - Each collection has a CTE with `json_textcontains()` for fuzzy matching
+2. **Joined CTE** - INNER JOINs on customerNumber with combined score calculation
+3. **Result Selection** - JSON output construction with ranking
+
+### Key Techniques
+
+| Technique | Description |
+|-----------|-------------|
+| `json_textcontains()` | Oracle Text fuzzy search on JSON fields |
+| `score(n)` | Relevance score extraction (0-100) |
+| Dot notation | `alias."DATA"."field".string()` for efficient field access |
+| `json_exists()` | Filter predicate for array element matching |
+| `/*+ DOMAIN_INDEX_SORT */` | Optimizer hint for index-based sorting |
+
+### Query Pattern Example (UC-1)
+
+```sql
+WITH
+phones AS (
+  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore
+  FROM "phone"
+  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '5549414620', 1)
+  ORDER BY score(1) DESC
+),
+identities AS (
+  SELECT "DATA", score(2) iscore
+  FROM "identity"
+  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%1007', 2)
+),
+addresses AS (
+  SELECT "DATA" FROM "address"
+),
+joined AS (
+  SELECT
+    p."DATA" phone_data,
+    i."DATA" identity_data,
+    a."DATA" address_data,
+    (p.pscore + i.iscore) / 2 ranking_score
+  FROM phones p
+  JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+)
+SELECT json { ... }
+FROM joined j
+ORDER BY j.ranking_score DESC
+FETCH FIRST 10 ROWS ONLY
+```
+
+---
+
+## Appendix: Complete Query Syntax
+
+### UC-1: Phone + SSN Last 4
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -454,7 +359,7 @@ joined AS (
   JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
   JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT /*+ MONITOR */ json {
+SELECT json {
   'rankingScore' : j.ranking_score,
   'ecn' : j.identity_data."_id"."customerNumber".string(),
   'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
@@ -481,34 +386,9 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 15, 2025 - Dot Notation):**
-```
---------------------------------------------------------------------------------------------------------
-| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
---------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |  1181   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |
-|   2 |   VIEW                           |                     |     1 |  4115 |  1181   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3899 |  1181   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                 |                     |     1 |  3899 |  1180   (0)| 00:00:01 |
-|*  5 |      HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |
-|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |
-|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |
-|*  9 |        DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |
-|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
---------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   5 - access(JSON_VALUE(i."DATA",'$._id.customerNumber')=JSON_VALUE(p."DATA",'$.phoneKey.customerNumber'))
-   7 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
-   9 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
-  10 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-```
-
 ---
 
-### UC-2: Phone + SSN + Account Last 4
+### UC-2: Phone + SSN Last 4 + Account Last 4
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -545,7 +425,7 @@ joined AS (
   JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
   JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT /*+ MONITOR */ json {
+SELECT json {
   'rankingScore' : j.ranking_score,
   'ecn' : j.identity_data."_id"."customerNumber".string(),
   'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
@@ -570,34 +450,6 @@ FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
-```
-
-**Query Plan (December 15, 2025 - Dot Notation):**
-```
----------------------------------------------------------------------------------------------------------
-| Id  | Operation                         | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
----------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                  |                     |     1 |  4115 |  1509   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                    |                     |       |       |            |          |
-|   2 |   VIEW                            |                     |     1 |  4115 |  1509   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY          |                     |     1 |  4941 |  1509   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                  |                     |     1 |  4941 |  1508   (0)| 00:00:01 |
-|*  5 |      HASH JOIN                    |                     |     1 |  4928 |  1505   (0)| 00:00:01 |
-|*  6 |       HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |
-|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |
-|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |
-|* 10 |         DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |
-|  11 |       TABLE ACCESS BY INDEX ROWID | account             |   750 |   763K|   328   (0)| 00:00:01 |
-|* 12 |        DOMAIN INDEX               | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |
-|* 13 |      INDEX RANGE SCAN             | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
----------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   6 - access(JSON_VALUE(i."DATA",'$._id.customerNumber')=JSON_VALUE(p."DATA",'$.phoneKey.customerNumber'))
-   8 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
-  10 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
-  12 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',3)>0)
 ```
 
 ---
@@ -638,7 +490,7 @@ joined AS (
   JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
   JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT /*+ MONITOR */ json {
+SELECT json {
   'rankingScore' : j.ranking_score,
   'ecn' : j.identity_data."_id"."customerNumber".string(),
   'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
@@ -665,39 +517,9 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 15, 2025 - Dot Notation):**
-```
-------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                 | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |
-------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                          |                      |     1 |  4115 |  3417   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                            |                      |       |       |            |          |
-|   2 |   VIEW                                    |                      |     1 |  4115 |  3417   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY                  |                      |     1 |  4929 |  3417   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                          |                      |     1 |  4929 |  3416   (1)| 00:00:01 |
-|*  5 |      HASH JOIN                            |                      |     1 |  4916 |  3413   (1)| 00:00:01 |
-|   6 |       NESTED LOOPS                        |                      |   750 |  2257K|  2579   (1)| 00:00:01 |
-|   7 |        TABLE ACCESS BY INDEX ROWID        | account              |   750 |   763K|   328   (0)| 00:00:01 |
-|*  8 |         DOMAIN INDEX                      | IDX_ACCOUNT_SEARCH   |       |       |     4   (0)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID BATCHED| identity             |     1 |  2040 |     3   (0)| 00:00:01 |
-|* 10 |         INDEX RANGE SCAN                  | IDX_IDENTITY_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
-|  11 |       TABLE ACCESS BY INDEX ROWID         | phone                |  1250 |  2238K|   834   (0)| 00:00:01 |
-|* 12 |        DOMAIN INDEX                       | IDX_PHONE_SEARCH     |       |       |     4   (0)| 00:00:01 |
-|* 13 |      INDEX RANGE SCAN                     | IDX_ADDRESS_CUSTNUM  |     1 |       |     2   (0)| 00:00:01 |
-------------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   5 - access(JSON_VALUE(i."DATA",'$._id.customerNumber')=JSON_VALUE(p."DATA",'$.phoneKey.customerNumber'))
-   8 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',2)>0)
-  10 - access(JSON_VALUE(ac."DATA",'$.accountHolders[0].customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-  12 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',1)>0)
-
-Note: UC-3 uses IDX_IDENTITY_CUSTNUM for nested loops (identity CTE has no fuzzy filter)
-```
-
 ---
 
-### UC-4: Account Number + SSN (ends-with)
+### UC-4: Account Number + SSN Last 4
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -727,7 +549,7 @@ joined AS (
   JOIN identities i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
   JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT /*+ MONITOR */ json {
+SELECT json {
   'rankingScore' : j.ranking_score,
   'ecn' : j.identity_data."_id"."customerNumber".string(),
   'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
@@ -754,37 +576,9 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 15, 2025 - Dot Notation):**
-```
---------------------------------------------------------------------------------------------------------
-| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
---------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |   675   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |
-|   2 |   VIEW                           |                     |     1 |  4115 |   675   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3107 |   675   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                 |                     |     1 |  3107 |   674   (1)| 00:00:01 |
-|*  5 |      HASH JOIN                   |                     |     1 |  3094 |   671   (1)| 00:00:01 |
-|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |
-|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|   328   (0)| 00:00:01 |
-|*  9 |        DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |
-|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
---------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   5 - access(JSON_VALUE(ac."DATA",'$.accountHolders[0].customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-   7 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
-   9 - access("CTXSYS"."CONTAINS"("account"."DATA",'(100000375005) INPATH (/accountKey/accountNumber)',1)>0)
-  10 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-```
-
 ---
 
-### UC-5: City/State/ZIP + SSN + Account Last 4
-
-**Note:** Per Josh Spiegel (Oracle), use `json_exists` with filter expression for array access:
-`json_exists(a.data, '$.path[0]?(@.field == $b1)' passing 'value' as "b1")`
+### UC-5: City/State/ZIP + SSN Last 4 + Account Last 4
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -816,7 +610,7 @@ joined AS (
   JOIN identities i ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
   JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT /*+ MONITOR */ json {
+SELECT json {
   'rankingScore' : j.ranking_score,
   'ecn' : j.identity_data."_id"."customerNumber".string(),
   'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
@@ -843,44 +637,9 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 15, 2025 - json_exists):**
-```
-------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                 | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |
-------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                          |                      |     1 |  4115 |  1008   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                            |                      |       |       |            |          |
-|   2 |   VIEW                                    |                      |     1 |  4115 |  1008   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY                  |                      |     1 |  4667 |  1008   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                          |                      |     1 |  4667 |  1007   (1)| 00:00:01 |
-|*  5 |      HASH JOIN                            |                      |     1 |  2615 |  1004   (1)| 00:00:01 |
-|*  6 |       TABLE ACCESS BY INDEX ROWID BATCHED | address              |   500 |   769K|   676   (1)| 00:00:01 |
-|*  7 |        DOMAIN INDEX                       | IDX_ADDRESS_SEARCH   |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID         | account              |   750 |   763K|   328   (0)| 00:00:01 |
-|*  9 |        DOMAIN INDEX                       | IDX_ACCOUNT_SEARCH   |       |       |     4   (0)| 00:00:01 |
-|* 10 |      TABLE ACCESS BY INDEX ROWID BATCHED  | identity             |     1 |  2052 |     3   (0)| 00:00:01 |
-|* 11 |       INDEX RANGE SCAN                    | IDX_IDENTITY_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
-------------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   5 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(ac."DATA",'$.accountKey.customerNumber'))
-   6 - filter(JSON_EXISTS2("A"."DATA", '$.addresses[0]?(@.stateCode == $b1 &&@.postalCode == $b2)'
-              PASSING 'CA' AS "b1", '54717' AS "b2" FALSE ON ERROR NULL ON EMPTY))
-   7 - access("CTXSYS"."CONTAINS"("address"."DATA",'(South Wilbertfurt) INPATH (/addresses/cityName)',1)>0)
-   9 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',3)>0)
-  10 - filter("CTXSYS"."CONTAINS"("identity"."DATA",'(%1007) INPATH (/common/taxIdentificationNumber)',2)>0)
-  11 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-
-Note: UC-5 uses json_exists filter for efficient state/zip array access (per Josh Spiegel, Oracle)
-```
-
 ---
 
 ### UC-6: Email + Account Last 4
-
-**Note:** Email search uses the local part only (e.g., `ashields` not `ashields@gmail.com`) via `extractEmailLocalPart()` in the implementation.
-
-**This query uses dot notation per Oracle team guidance (Rodrigo Fuentes):**
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -910,7 +669,7 @@ joined AS (
   JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
   JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT /*+ MONITOR */ json {
+SELECT json {
   'rankingScore' : j.ranking_score,
   'ecn' : j.identity_data."_id"."customerNumber".string(),
   'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
@@ -936,33 +695,6 @@ ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
 ```
-
-**Query Plan (December 15, 2025 - Dot Notation):**
-```
---------------------------------------------------------------------------------------------------------
-| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
---------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |   675   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |
-|   2 |   VIEW                           |                     |     1 |  4115 |   675   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3107 |   675   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                 |                     |     1 |  3107 |   674   (1)| 00:00:01 |
-|*  5 |      HASH JOIN                   |                     |     1 |  3094 |   671   (1)| 00:00:01 |
-|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |
-|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID| account             |   750 |   763K|   328   (0)| 00:00:01 |
-|*  9 |        DOMAIN INDEX              | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |
-|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
---------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   5 - access(JSON_VALUE(i."DATA",'$._id.customerNumber')=JSON_VALUE(ac."DATA",'$.accountHolders[0].customerNumber'))
-   7 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(ashields) INPATH (/emails/emailAddress)',2)>0)
-   9 - access("CTXSYS"."CONTAINS"("account"."DATA",'(5005) INPATH (/accountKey/accountNumberLast4)',1)>0)
-  10 - access(JSON_VALUE(a."DATA",'$._id.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-```
-
-**Note:** Uses direct match `5005` instead of wildcard `%5005` for accountNumberLast4 per Oracle team optimization.
 
 ---
 
@@ -1003,7 +735,7 @@ joined AS (
   JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
   JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT /*+ MONITOR */ json {
+SELECT json {
   'rankingScore' : j.combined_score,
   'ecn' : j.identity_data."_id"."customerNumber".string(),
   'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
@@ -1030,105 +762,16 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 15, 2025 - Dot Notation):**
-```
----------------------------------------------------------------------------------------------------------
-| Id  | Operation                         | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
----------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                  |                     |     1 |  4115 |  1509   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                    |                     |       |       |            |          |
-|   2 |   VIEW                            |                     |     1 |  4115 |  1509   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY          |                     |     1 |  4941 |  1509   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                  |                     |     1 |  4941 |  1508   (0)| 00:00:01 |
-|*  5 |      HASH JOIN                    |                     |     1 |  4928 |  1505   (0)| 00:00:01 |
-|*  6 |       HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |
-|   7 |        TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |
-|*  8 |         DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |
-|* 10 |         DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |
-|  11 |       TABLE ACCESS BY INDEX ROWID | account             |   750 |   763K|   328   (0)| 00:00:01 |
-|* 12 |        DOMAIN INDEX               | IDX_ACCOUNT_SEARCH  |       |       |     4   (0)| 00:00:01 |
-|* 13 |      INDEX RANGE SCAN             | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
----------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   6 - access(JSON_VALUE(p."DATA",'$.phoneKey.customerNumber')=JSON_VALUE(i."DATA",'$._id.customerNumber'))
-   8 - access("CTXSYS"."CONTAINS"("identity"."DATA",'(ashields) INPATH (/emails/emailAddress)',1)>0)
-  10 - access("CTXSYS"."CONTAINS"("phone"."DATA",'(5549414620) INPATH (/phoneKey/phoneNumber)',2)>0)
-  12 - access("CTXSYS"."CONTAINS"("account"."DATA",'(100000375005) INPATH (/accountKey/accountNumber)',3)>0)
-```
-
 ---
 
-### Key Syntax Notes
+### SQL Syntax Reference
 
 | Element | Syntax | Description |
 |---------|--------|-------------|
-| $sql operator | `db.aggregate([{"$sql": \`...\`}])` | Wraps SQL in MongoDB aggregation |
-| Fuzzy search | `json_textcontains("DATA", '$.path', 'term', label)` | Text search with score |
-| Ends-with pattern | `'%6789'` | Matches values ending with 6789 |
-| Score extraction | `score(n)` | Gets relevance score for label n |
-| Combined score | `(score1 + score2) / 2` | Average of multiple fuzzy scores |
-| JSON output | `SELECT json { 'key': value, ... }` | Constructs result document |
-| Optimization hint | `/*+ DOMAIN_INDEX_SORT */` | Pushes sort into index |
-| Monitor hint | `/*+ MONITOR */` | Enables execution plan monitoring |
-| Collection reference | `FROM "collection_name"` | Double-quoted collection name |
-| JSON path (fuzzy) | `'$."key"."subkey"'` | Quoted path for json_textcontains |
-| JSON path (value) | `'$.key.subkey'` | Unquoted path for JSON_VALUE |
-| Dot notation | `alias."DATA"."key".string()` | Dot notation for VARCHAR2 extraction |
-| Dot notation JOIN | `a."DATA"."key".string() = b."DATA"."key".string()` | Enables B-tree index usage |
-
----
-
-## CLI Usage
-
-### MongoDB $sql UC Benchmark
-```bash
-java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar mongo-sql \
-  --connection-string "mongodb://admin:PASSWORD@host:27017/[user]?..." \
-  --database admin \
-  --uc-benchmark \
-  --iterations 20 \
-  --warmup 5
-```
-
-### Run Individual UC Query
-```bash
-java --enable-preview -jar target/wf-bench-1.0.0-SNAPSHOT.jar mongo-sql \
-  --connection-string "$CONN" \
-  --database admin \
-  --uc1-phone "4155551234" \
-  --uc1-ssn-last4 "6789"
-```
-
----
-
-## Implementation Files
-
-| File | Description |
-|------|-------------|
-| `MongoSqlSearchService.java` | UC 1-7 using MongoDB $sql operator with json_textcontains() |
-| `MongoSqlSearchCommand.java` | CLI command for MongoDB $sql UC benchmarks |
-| `UcSearchResult.java` | Result model matching PDF response format |
-| `IdentityGenerator.java` | Data generator for identity collection |
-
----
-
-## Known Issues and Solutions
-
-1. **Array Index Paths:** `json_textcontains()` does not accept array index syntax in JSON paths. Paths like `$."addresses"[0]."cityName"` return `ORA-40469`. **Solution:** Use `$.addresses.cityName` (without array index) which matches any element in the array.
-
-2. **Negative Numbers in Text Search:** Oracle Text interprets `-` as a NOT operator. Account numbers starting with `-` cause `DRG-50901` parser errors. **Solution:** Ensure account numbers are always positive (use `Math.abs()`).
-
-3. **Unique Score Labels:** Each `json_textcontains()` call in a CTE must use a unique score label (1, 2, 3...) to avoid `ORA-30605`. **Solution:** Assign sequential labels to each fuzzy condition.
-
----
-
-## Notes
-
-1. **Fuzzy Matching:** All search conditions use `json_textcontains()` for typo-tolerant matching
-2. **Combined Scores:** Multiple fuzzy matches are averaged into a single relevance score
-3. **Ends-With Pattern:** Use `%term` pattern for partial matches (SSN last 4, account last 4)
-4. **Address Requirement:** INNER JOIN ensures all results have at least one address
-5. **CTE Pattern:** WITH clause pattern enables efficient multi-collection joins
-6. **DOMAIN_INDEX_SORT:** Hint pushes sort into domain index for better performance
+| MongoDB $sql | `db.aggregate([{"$sql": \`...\`}])` | Execute SQL via MongoDB API |
+| Fuzzy search | `json_textcontains("DATA", '$.path', 'term', label)` | Text search with scoring |
+| Ends-with | `'%1007'` | Pattern matching suffix |
+| Score | `score(n)` | Get relevance score for label n |
+| JSON output | `SELECT json { 'key': value }` | Construct JSON result |
+| Dot notation | `alias."DATA"."field".string()` | Extract field as VARCHAR2 |
+| Array filter | `json_exists(data, '$.arr[0]?(@.f == $b)' passing 'v' as "b")` | Filter array elements |
