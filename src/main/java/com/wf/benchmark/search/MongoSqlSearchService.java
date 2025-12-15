@@ -254,7 +254,7 @@ public class MongoSqlSearchService {
             accounts AS (
               SELECT "DATA", score(3) ascore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 3)
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%s', 3)
             ),
             addresses AS (
               SELECT "DATA"
@@ -326,7 +326,7 @@ public class MongoSqlSearchService {
             accounts AS (
               SELECT "DATA", score(2) ascore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 2)
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%s', 2)
             ),
             addresses AS (
               SELECT "DATA"
@@ -465,7 +465,7 @@ public class MongoSqlSearchService {
             accounts AS (
               SELECT "DATA", score(3) ascore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 3)
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%s', 3)
             ),
             joined AS (
               SELECT
@@ -526,7 +526,7 @@ public class MongoSqlSearchService {
             accounts AS (
               SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) ascore
               FROM "%s"
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%%%s', 1)
+              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%s', 1)
               ORDER BY score(1) DESC
             ),
             identities AS (

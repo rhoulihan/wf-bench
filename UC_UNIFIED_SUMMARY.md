@@ -281,6 +281,7 @@ All UC queries return results in the same format. Here is a sample result:
 - **Address Requirement:** INNER JOIN (customers must have addresses)
 - **Email Format:** `firstinitiallastname@domain` (e.g., `jsmith@gmail.com`) - optimized for text search
 - **Statistics:** Freshly gathered on all tables
+- **Optimization:** Direct match on accountNumberLast4 (no % prefix) per Oracle team guidance
 
 ### Dataset Size (LARGE)
 | Collection | Document Count | Description |
@@ -295,15 +296,26 @@ All UC queries return results in the same format. Here is a sample result:
 
 | UC | Description | Avg Latency | P95 | Throughput | Status |
 |----|-------------|-------------|-----|------------|--------|
-| UC-1 | Phone + SSN | **9.28 ms** | 7.54 ms | 107.7/s | 20/20 |
-| UC-2 | Phone + SSN + Account | **23.61 ms** | 119.74 ms | 42.4/s | 20/20 |
-| UC-3 | Phone + Account Last 4 | **6.01 ms** | 6.59 ms | 166.4/s | 20/20 |
-| UC-4 | Account + SSN | **10.01 ms** | 6.68 ms | 99.9/s | 20/20 |
-| UC-5 | City/State/ZIP + SSN + Account | **117.74 ms** | 191.23 ms | 8.5/s | 20/20 |
-| UC-6 | Email + Account Last 4 | **1365.66 ms** | 1589.25 ms | 0.7/s | 20/20 |
-| UC-7 | Email + Phone + Account | **5.77 ms** | 6.21 ms | 173.3/s | 20/20 |
+| UC-1 | Phone + SSN | **6.85 ms** | 7.34 ms | 146.0/s | 10/10 |
+| UC-2 | Phone + SSN + Account | **6.73 ms** | 7.62 ms | 148.6/s | 10/10 |
+| UC-3 | Phone + Account Last 4 | **6.49 ms** | 6.84 ms | 154.0/s | 10/10 |
+| UC-4 | Account + SSN | **5.96 ms** | 6.31 ms | 167.7/s | 10/10 |
+| UC-5 | City/State/ZIP + SSN + Account | **114.61 ms** | 195.33 ms | 8.7/s | 10/10 |
+| UC-6 | Email + Account Last 4 | **244.05 ms** | 485.38 ms | 4.1/s | 10/10 |
+| UC-7 | Email + Phone + Account | **6.34 ms** | 7.02 ms | 157.8/s | 10/10 |
 
-**All 7 UC queries pass 20/20 with fuzzy matching on ALL conditions!**
+**All 7 UC queries pass 10/10 with fuzzy matching on ALL conditions!**
+
+### Oracle Team Optimization (December 14, 2025)
+
+Per Oracle team guidance (Rodrigo Fuentes), removed `%` prefix from `accountNumberLast4` searches:
+
+> "Since accountNumberLast4 already stores just 4 digits, use direct match `'5005'` instead of wildcard `'%5005'`. The `%5005` pattern causes 1034 token expansion (~1.3s), while direct match is ~0.1s."
+
+**Impact:**
+- UC-6 improved from **1365 ms** to **244 ms** (5.6x faster)
+- All queries using accountNumberLast4 now use direct match pattern
+- Most UC queries now complete in under 10ms
 
 **Note:** Test data uses actual matching customers from the database. Statistics freshly gathered on all tables.
 
@@ -312,17 +324,17 @@ All UC queries return results in the same format. Here is a sample result:
 | UC | Search Parameters | Example Values |
 |----|-------------------|----------------|
 | UC-1 | Phone, SSN Last 4 | `5865531910`, `%0268` |
-| UC-2 | Phone, SSN Last 4, Account Last 4 | `5865531910`, `%0268`, `%0000` |
-| UC-3 | Phone, Account Last 4 | `5865531910`, `%0000` |
+| UC-2 | Phone, SSN Last 4, Account Last 4 | `5865531910`, `%0268`, `5005` |
+| UC-3 | Phone, Account Last 4 | `5865531910`, `5005` |
 | UC-4 | Account Number, SSN Last 4 | `100000000000`, `%0268` |
-| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `North Cristobalhaven`, `IL`, `75416`, `%0268`, `%0000` |
-| UC-6 | Email (local part), Account Last 4 | `mkshlerin`, `%0000` |
-| UC-7 | Email, Phone, Account Number | `mkshlerin`, `5865531910`, `100000000000` |
+| UC-5 | City, State, ZIP, SSN Last 4, Account Last 4 | `North Cristobalhaven`, `IL`, `75416`, `%0268`, `5005` |
+| UC-6 | Email (local part), Account Last 4 | `ashields`, `5005` |
+| UC-7 | Email, Phone, Account Number | `ashields`, `5549414620`, `100000375005` |
 
 **Notes:**
 - Phone numbers: 10-digit fuzzy match
 - SSN Last 4: `%term` pattern anchors to end of full taxIdentificationNumber field
-- Account Last 4: `%term` pattern anchors to end of accountNumberLast4 field
+- Account Last 4: Direct match on accountNumberLast4 field (no `%` prefix - see Oracle team optimization above)
 - Email: Fuzzy match on `emails.emailAddress` array field, **searches local part only** (e.g., `mkshlerin` not `mkshlerin@icloud.com`)
 - Account Number: Full account number fuzzy match
 - Email format: `firstinitiallastname@domain` (e.g., `mkshlerin@icloud.com`, `avandervort@gmail.com`)
@@ -489,7 +501,7 @@ identities AS (
 accounts AS (
   SELECT "DATA", score(3) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%1234', 3)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '1234', 3)
 ),
 addresses AS (
   SELECT "DATA"
@@ -554,7 +566,7 @@ identities AS (
 accounts AS (
   SELECT "DATA", score(2) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%1234', 2)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '1234', 2)
 ),
 addresses AS (
   SELECT "DATA"
@@ -706,7 +718,7 @@ identities AS (
 accounts AS (
   SELECT "DATA", score(3) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%1234', 3)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '1234', 3)
 ),
 joined AS (
   SELECT
@@ -765,7 +777,7 @@ identities AS (
 accounts AS (
   SELECT "DATA", score(2) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '%5005', 2)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '5005', 2)
 ),
 addresses AS (
   SELECT "DATA"
