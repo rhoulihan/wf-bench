@@ -1,6 +1,7 @@
--- UC 1-7 Execution Plans with DOT NOTATION
+-- UC 1-11 Execution Plans with DOT NOTATION
 -- Uses sample data for customer 1000250004
 -- Updated December 15, 2025 per Oracle team guidance (Rodrigo Fuentes)
+-- UC 8-11 added December 15, 2025
 
 SET PAGESIZE 200
 SET LINESIZE 300
@@ -298,6 +299,129 @@ joined AS (
 SELECT /*+ MONITOR */ j.combined_score, j.identity_data
 FROM joined j
 ORDER BY j.combined_score DESC
+FETCH FIRST 10 ROWS ONLY;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+PROMPT ================================================================================
+PROMPT UC-8: TIN (Full 9-digit) (DOT NOTATION)
+PROMPT tin=855611007
+PROMPT ================================================================================
+
+EXPLAIN PLAN FOR
+WITH
+identities AS (
+  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) iscore
+  FROM "identity"
+  WHERE json_textcontains("DATA", '$.common.taxIdentificationNumber', '855611007', 1)
+  ORDER BY score(1) DESC
+),
+addresses AS (
+  SELECT "DATA"
+  FROM "address"
+),
+joined AS (
+  SELECT
+    i."DATA" identity_data,
+    a."DATA" address_data,
+    i.iscore ranking_score
+  FROM identities i
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+)
+SELECT /*+ MONITOR */ j.ranking_score, j.identity_data
+FROM joined j
+ORDER BY j.ranking_score DESC
+FETCH FIRST 10 ROWS ONLY;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+PROMPT ================================================================================
+PROMPT UC-9: Account Number + Optional Filters (DIRECT JOIN)
+PROMPT accountNumber=100000375005
+PROMPT ================================================================================
+
+EXPLAIN PLAN FOR
+SELECT /*+ MONITOR */
+  i."DATA" identity_data,
+  ac."DATA" account_data,
+  a."DATA" address_data
+FROM "account" ac
+JOIN "identity" i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+JOIN "address" a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumber"', '100000375005')
+FETCH FIRST 10 ROWS ONLY;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+PROMPT ================================================================================
+PROMPT UC-10: Tokenized Account (Hyphenated) (DOT NOTATION)
+PROMPT accountNumberHyphenated=1000-0037-5005
+PROMPT ================================================================================
+
+EXPLAIN PLAN FOR
+WITH
+accounts AS (
+  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA"
+  FROM "account" ac
+  WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumberHyphenated"', '1000-0037-5005')
+),
+identities AS (
+  SELECT "DATA"
+  FROM "identity"
+),
+addresses AS (
+  SELECT "DATA"
+  FROM "address"
+),
+joined AS (
+  SELECT
+    ac."DATA" account_data,
+    i."DATA" identity_data,
+    a."DATA" address_data
+  FROM accounts ac
+  JOIN identities i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+)
+SELECT /*+ MONITOR */ j.identity_data
+FROM joined j
+FETCH FIRST 10 ROWS ONLY;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+PROMPT ================================================================================
+PROMPT UC-11: Phone (Full 10-digit) (DOT NOTATION)
+PROMPT phone=5549414620
+PROMPT ================================================================================
+
+EXPLAIN PLAN FOR
+WITH
+phones AS (
+  SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore
+  FROM "phone"
+  WHERE json_textcontains("DATA", '$.phoneKey.phoneNumber', '5549414620', 1)
+  ORDER BY score(1) DESC
+),
+identities AS (
+  SELECT "DATA"
+  FROM "identity"
+),
+addresses AS (
+  SELECT "DATA"
+  FROM "address"
+),
+joined AS (
+  SELECT
+    p."DATA" phone_data,
+    i."DATA" identity_data,
+    a."DATA" address_data,
+    p.pscore ranking_score
+  FROM phones p
+  JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+)
+SELECT /*+ MONITOR */ j.ranking_score, j.identity_data
+FROM joined j
+ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY;
 
 SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);

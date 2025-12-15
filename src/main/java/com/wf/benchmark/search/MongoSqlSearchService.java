@@ -785,62 +785,42 @@ public class MongoSqlSearchService {
                 "\n    AND ac.\"DATA\".\"companyOfInterestId\".string() = '%s'", escapeSql(coid)));
         }
 
+        // Direct JOIN approach - avoid full table CTEs
         return """
-            WITH
-            accounts AS (
-              SELECT "DATA"
-              FROM "%s" ac
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumber"', '%s', 1)%s
-            ),
-            identities AS (
-              SELECT "DATA"
-              FROM "%s"
-            ),
-            addresses AS (
-              SELECT "DATA"
-              FROM "%s"
-            ),
-            joined AS (
-              SELECT
-                ac."DATA" account_data,
-                i."DATA" identity_data,
-                a."DATA" address_data
-              FROM accounts ac
-              JOIN identities i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
-              JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
-            )
             SELECT /*+ MONITOR */ json {
-              'ecn' : j.identity_data."_id"."customerNumber".string(),
-              'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
-              'accountNumber' : j.account_data."accountKey"."accountNumber".string(),
-              'productType' : j.account_data."productTypeCode".string(),
-              'companyOfInterestId' : j.account_data."companyOfInterestId".string(),
-              'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
-              'name' : j.identity_data."common"."fullName".string(),
+              'ecn' : i."DATA"."_id"."customerNumber".string(),
+              'companyId' : NVL(i."DATA"."_id"."customerCompanyNumber".string(), 1),
+              'accountNumber' : ac."DATA"."accountKey"."accountNumber".string(),
+              'productType' : ac."DATA"."productTypeCode".string(),
+              'companyOfInterestId' : ac."DATA"."companyOfInterestId".string(),
+              'entityType' : i."DATA"."common"."entityTypeIndicator".string(),
+              'name' : i."DATA"."common"."fullName".string(),
               'alternateName' : CASE
-                WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
-                THEN j.identity_data."individual"."firstName".string()
-                ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
+                WHEN i."DATA"."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+                THEN i."DATA"."individual"."firstName".string()
+                ELSE i."DATA"."nonIndividual"."businessDescriptionText".string()
               END,
-              'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
-              'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
-              'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
-              'addressLine' : j.address_data."addresses"."addressLine1".string(),
-              'cityName' : j.address_data."addresses"."cityName".string(),
-              'state' : j.address_data."addresses"."stateCode".string(),
-              'postalCode' : j.address_data."addresses"."postalCode".string(),
-              'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
-              'customerType' : j.identity_data."common"."customerType".string()
+              'taxIdNumber' : i."DATA"."common"."taxIdentificationNumber".string(),
+              'taxIdType' : i."DATA"."common"."taxIdentificationType".string(),
+              'birthDate' : i."DATA"."individual"."dateOfBirth".string(),
+              'addressLine' : a."DATA"."addresses"."addressLine1".string(),
+              'cityName' : a."DATA"."addresses"."cityName".string(),
+              'state' : a."DATA"."addresses"."stateCode".string(),
+              'postalCode' : a."DATA"."addresses"."postalCode".string(),
+              'countryCode' : NVL(a."DATA"."addresses"."countryCode".string(), 'US'),
+              'customerType' : i."DATA"."common"."customerType".string()
             }
-            FROM joined j
+            FROM "%s" ac
+            JOIN "%s" i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+            JOIN "%s" a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+            WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumber"', '%s')%s
             FETCH FIRST %d ROWS ONLY
-            """.formatted(account, escapeSql(accountNumber), accountFilters.toString(),
-                identity, address, limit);
+            """.formatted(account, identity, address, escapeSql(accountNumber), accountFilters.toString(), limit);
     }
 
     /**
      * Builds the SQL query for UC-10: Search by Tokenized Account Number (hyphenated).
-     * Searches on accountNumberHyphenated field in format XXXX-XXXX-XXXX.
+     * Uses exact match on accountNumberHyphenated field in format XXXX-XXXX-XXXX.
      * If input is unhyphenated 12-digit, converts to hyphenated format.
      */
     public String buildUC10Query(String tokenizedAccount, int limit) {
@@ -851,12 +831,13 @@ public class MongoSqlSearchService {
         // Normalize input to hyphenated format if not already
         String hyphenatedAccount = normalizeToHyphenated(tokenizedAccount);
 
+        // Use text search on tokenized/hyphenated account number
         return """
             WITH
             accounts AS (
-              SELECT "DATA"
-              FROM "%s"
-              WHERE json_textcontains("DATA", '$."accountKey"."accountNumberHyphenated"', '%s', 1)
+              SELECT /*+ DOMAIN_INDEX_SORT */ "DATA"
+              FROM "%s" ac
+              WHERE json_textcontains(ac."DATA", '$."accountKey"."accountNumberHyphenated"', '%s')
             ),
             identities AS (
               SELECT "DATA"

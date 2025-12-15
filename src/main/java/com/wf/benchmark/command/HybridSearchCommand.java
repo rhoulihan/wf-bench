@@ -114,6 +114,24 @@ public class HybridSearchCommand implements Callable<Integer> {
     @Option(names = {"-q", "--quiet"}, description = "Suppress progress output", defaultValue = "false")
     private boolean quiet;
 
+    @Option(names = {"--migrate-accounts"}, description = "Add accountNumberHyphenated field to existing account documents", defaultValue = "false")
+    private boolean migrateAccounts;
+
+    @Option(names = {"--create-account-index"}, description = "Create text search index on account collection", defaultValue = "false")
+    private boolean createAccountIndex;
+
+    @Option(names = {"--account-collection"}, description = "Account collection name for migration", defaultValue = "account")
+    private String accountCollection;
+
+    @Option(names = {"--sync-account-index"}, description = "Sync account text search index after data changes", defaultValue = "false")
+    private boolean syncAccountIndex;
+
+    @Option(names = {"--list-indexes"}, description = "List text search indexes on a table", defaultValue = "false")
+    private boolean listIndexes;
+
+    @Option(names = {"--create-account-number-index"}, description = "Create functional index on account number for exact match queries", defaultValue = "false")
+    private boolean createAccountNumberIndex;
+
     @Option(names = {"--benchmark"}, description = "Run benchmark mode with detailed metrics", defaultValue = "false")
     private boolean benchmarkMode;
 
@@ -137,6 +155,23 @@ public class HybridSearchCommand implements Callable<Integer> {
             }
             if (createVectorIndex) {
                 return createOracleVectorIndex(dataSource);
+            }
+
+            // Handle account migration for UC-10
+            if (migrateAccounts) {
+                return migrateAccountsAddHyphenated(dataSource);
+            }
+            if (createAccountIndex) {
+                return createAccountTextIndex(dataSource);
+            }
+            if (syncAccountIndex) {
+                return syncAccountTextIndex(dataSource);
+            }
+            if (listIndexes) {
+                return listTextIndexes(dataSource);
+            }
+            if (createAccountNumberIndex) {
+                return createAccountNumberFunctionalIndex(dataSource);
             }
 
             // Create search services
@@ -350,6 +385,243 @@ public class HybridSearchCommand implements Callable<Integer> {
 
         } catch (SQLException e) {
             System.err.println("Failed to create vector index: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    /**
+     * Migrate existing account documents to add accountNumberHyphenated field.
+     * This is needed for UC-10 (tokenized account search) to work with existing data.
+     */
+    private int migrateAccountsAddHyphenated(DataSource dataSource) {
+        System.out.println("=== Account Migration: Adding accountNumberHyphenated field ===\n");
+        System.out.println("Collection: " + accountCollection);
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            // First check how many accounts need migration
+            String countSql = String.format(
+                "SELECT COUNT(*) FROM %s WHERE JSON_VALUE(DATA, '$.accountKey.accountNumberHyphenated') IS NULL",
+                accountCollection);
+            var rs = stmt.executeQuery(countSql);
+            rs.next();
+            int needsMigration = rs.getInt(1);
+            System.out.printf("Accounts needing migration: %d%n", needsMigration);
+
+            if (needsMigration == 0) {
+                System.out.println("All accounts already have accountNumberHyphenated field. No migration needed.");
+                return 0;
+            }
+
+            // Update accounts to add hyphenated format
+            // Format: 100000375005 -> 1000-0037-5005
+            System.out.println("Adding accountNumberHyphenated field to accounts...");
+            long startTime = System.currentTimeMillis();
+
+            String updateSql = String.format("""
+                UPDATE %s
+                SET DATA = JSON_TRANSFORM(DATA,
+                    SET '$.accountKey.accountNumberHyphenated' =
+                        SUBSTR(JSON_VALUE(DATA, '$.accountKey.accountNumber'), 1, 4) || '-' ||
+                        SUBSTR(JSON_VALUE(DATA, '$.accountKey.accountNumber'), 5, 4) || '-' ||
+                        SUBSTR(JSON_VALUE(DATA, '$.accountKey.accountNumber'), 9, 4))
+                WHERE JSON_VALUE(DATA, '$.accountKey.accountNumberHyphenated') IS NULL
+                """, accountCollection);
+
+            int updated = stmt.executeUpdate(updateSql);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.printf("Updated %d accounts in %.2f seconds%n", updated, elapsed / 1000.0);
+            System.out.printf("Throughput: %.0f updates/sec%n", updated / (elapsed / 1000.0));
+            System.out.println("\nMigration completed successfully!");
+            return 0;
+
+        } catch (SQLException e) {
+            System.err.println("Migration failed: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    /**
+     * Create Oracle Text search index on account collection.
+     * Required for UC-10 json_textcontains queries on accountNumberHyphenated.
+     */
+    private int createAccountTextIndex(DataSource dataSource) {
+        System.out.println("=== Creating Text Index on Account Collection ===\n");
+        String indexName = "idx_" + accountCollection + "_text";
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            // First, ensure the wildcard wordlist preference exists
+            System.out.println("Ensuring wildcard wordlist preference exists...");
+            try {
+                String createPref = String.format(
+                    "BEGIN " +
+                    "  BEGIN ctx_ddl.drop_preference('%s'); EXCEPTION WHEN OTHERS THEN NULL; END; " +
+                    "  ctx_ddl.create_preference('%s', 'BASIC_WORDLIST'); " +
+                    "  ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX', 'TRUE'); " +
+                    "  ctx_ddl.set_attribute('%s', 'WILDCARD_INDEX_K', '4'); " +
+                    "END;",
+                    WORDLIST_PREFERENCE, WORDLIST_PREFERENCE, WORDLIST_PREFERENCE, WORDLIST_PREFERENCE);
+                stmt.execute(createPref);
+                System.out.println("Wordlist preference ready: " + WORDLIST_PREFERENCE);
+            } catch (SQLException e) {
+                System.out.println("Note: Wordlist preference may already exist: " + e.getMessage());
+            }
+
+            // Drop existing index if present (find actual name first)
+            System.out.println("Dropping existing index if present...");
+            String findIndexSql = """
+                SELECT idx_name FROM ctx_user_indexes
+                WHERE UPPER(idx_table) = UPPER('%s')
+                """.formatted(accountCollection);
+            List<String> indexesToDrop = new ArrayList<>();
+            var rs = stmt.executeQuery(findIndexSql);
+            while (rs.next()) {
+                indexesToDrop.add(rs.getString("idx_name"));
+            }
+            rs.close();
+            for (String existingIndex : indexesToDrop) {
+                try {
+                    System.out.println("Dropping index: " + existingIndex);
+                    stmt.execute("DROP INDEX " + existingIndex);
+                    System.out.println("Dropped: " + existingIndex);
+                } catch (SQLException e) {
+                    System.out.println("Note: Could not drop " + existingIndex + ": " + e.getMessage());
+                }
+            }
+
+            // Create index with wildcard wordlist
+            String sql = String.format(
+                "CREATE SEARCH INDEX %s ON %s(DATA) FOR JSON PARAMETERS ('wordlist %s')",
+                indexName, accountCollection, WORDLIST_PREFERENCE);
+            System.out.println("Executing: " + sql);
+
+            long startTime = System.currentTimeMillis();
+            stmt.execute(sql);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.printf("Successfully created index: %s (%.2f seconds)%n", indexName, elapsed / 1000.0);
+            return 0;
+
+        } catch (SQLException e) {
+            System.err.println("Failed to create account text index: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    /**
+     * Create functional index on account number for exact match queries (UC-9).
+     */
+    private int createAccountNumberFunctionalIndex(DataSource dataSource) {
+        System.out.println("=== Creating Functional Index on Account Number ===\n");
+        String indexName = "idx_" + accountCollection + "_acct_num";
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            // Drop existing index if present
+            System.out.println("Dropping existing index if present...");
+            try {
+                stmt.execute("DROP INDEX " + indexName);
+                System.out.println("Dropped: " + indexName);
+            } catch (SQLException e) {
+                // Index doesn't exist
+            }
+
+            // Create functional index on account number JSON path
+            String sql = String.format(
+                "CREATE INDEX %s ON %s (JSON_VALUE(DATA, '$.accountKey.accountNumber'))",
+                indexName, accountCollection);
+            System.out.println("Executing: " + sql);
+
+            long startTime = System.currentTimeMillis();
+            stmt.execute(sql);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            System.out.printf("Successfully created index: %s (%.2f seconds)%n", indexName, elapsed / 1000.0);
+            return 0;
+
+        } catch (SQLException e) {
+            System.err.println("Failed to create functional index: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    /**
+     * List text search indexes on the account collection.
+     */
+    private int listTextIndexes(DataSource dataSource) {
+        System.out.println("=== Text Search Indexes on " + accountCollection + " ===\n");
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            String sql = """
+                SELECT idx_name, idx_table, idx_status, idx_docid_count
+                FROM ctx_user_indexes
+                WHERE UPPER(idx_table) = UPPER('%s')
+                """.formatted(accountCollection);
+
+            var rs = stmt.executeQuery(sql);
+            boolean found = false;
+            while (rs.next()) {
+                found = true;
+                System.out.printf("Index: %s%n", rs.getString("idx_name"));
+                System.out.printf("  Table: %s%n", rs.getString("idx_table"));
+                System.out.printf("  Status: %s%n", rs.getString("idx_status"));
+                System.out.printf("  Doc Count: %d%n%n", rs.getInt("idx_docid_count"));
+            }
+            if (!found) {
+                System.out.println("No text indexes found on " + accountCollection);
+            }
+            return 0;
+
+        } catch (SQLException e) {
+            System.err.println("Failed to list indexes: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    /**
+     * Sync the account text search index to pick up new/changed data.
+     * Required after adding accountNumberHyphenated field to existing documents.
+     */
+    private int syncAccountTextIndex(DataSource dataSource) {
+        System.out.println("=== Syncing Account Text Search Index ===\n");
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            // Find the actual index name on this table
+            String findIndexSql = """
+                SELECT idx_name FROM ctx_user_indexes
+                WHERE UPPER(idx_table) = UPPER('%s')
+                AND ROWNUM = 1
+                """.formatted(accountCollection);
+
+            var rs = stmt.executeQuery(findIndexSql);
+            if (!rs.next()) {
+                System.err.println("No text index found on " + accountCollection);
+                return 1;
+            }
+            String indexName = rs.getString("idx_name");
+
+            System.out.println("Syncing index: " + indexName);
+            long startTime = System.currentTimeMillis();
+
+            String syncSql = String.format("BEGIN CTX_DDL.SYNC_INDEX('%s'); END;", indexName);
+            stmt.execute(syncSql);
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            System.out.printf("Index sync completed in %.2f seconds%n", elapsed / 1000.0);
+            return 0;
+
+        } catch (SQLException e) {
+            System.err.println("Failed to sync account index: " + e.getMessage());
             return 1;
         }
     }
