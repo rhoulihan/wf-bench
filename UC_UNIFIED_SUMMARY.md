@@ -131,7 +131,7 @@ The diagram shows the CTE-based query pattern:
 **Fuzzy Conditions:** Phone number, SSN (ends-with)
 **Score:** Average of phone score + SSN score
 
-**Query Pattern (MongoDB $sql):**
+**Query Pattern (MongoDB $sql with dot notation):**
 ```sql
 WITH
 phones AS (
@@ -156,10 +156,10 @@ joined AS (
     a."DATA" address_data,
     (p.pscore + i.iscore) / 2 ranking_score
   FROM phones p
-  JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-  JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT json {...}
+SELECT /*+ MONITOR */ json {...}
 FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST ? ROWS ONLY
@@ -407,6 +407,11 @@ Per Oracle team guidance, the queries now use **dot notation** instead of `JSON_
 
 Each UC query is executed via the MongoDB API's `$sql` aggregation operator. Below is the complete syntax for each use case.
 
+**All queries use dot notation per Oracle team guidance (Rodrigo Fuentes):**
+- JOINs: `alias."DATA"."path"."field".string() = alias."DATA"."path"."field".string()`
+- SELECT: `j.alias_data."path"."field".string()`
+- UC-6 serves as the reference implementation pattern
+
 ### UC-1: Phone + SSN (ends-with)
 
 ```javascript
@@ -434,29 +439,29 @@ joined AS (
     a."DATA" address_data,
     (p.pscore + i.iscore) / 2 ranking_score
   FROM phones p
-  JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-  JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT json {
+SELECT /*+ MONITOR */ json {
   'rankingScore' : j.ranking_score,
-  'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-  'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-  'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-  'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+  'ecn' : j.identity_data."_id"."customerNumber".string(),
+  'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+  'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+  'name' : j.identity_data."common"."fullName".string(),
   'alternateName' : CASE
-    WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-    THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-    ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+    WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+    THEN j.identity_data."individual"."firstName".string()
+    ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
   END,
-  'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-  'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-  'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-  'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-  'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-  'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-  'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-  'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-  'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+  'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+  'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+  'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+  'addressLine' : j.address_data."addresses"."addressLine1".string(),
+  'cityName' : j.address_data."addresses"."cityName".string(),
+  'state' : j.address_data."addresses"."stateCode".string(),
+  'postalCode' : j.address_data."addresses"."postalCode".string(),
+  'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+  'customerType' : j.identity_data."common"."customerType".string()
 }
 FROM joined j
 ORDER BY j.ranking_score DESC
@@ -464,7 +469,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 14, 2025):**
+**Query Plan (December 15, 2025 - Dot Notation):**
 ```
 --------------------------------------------------------------------------------------------------------
 | Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
@@ -499,18 +504,18 @@ WITH
 phones AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore
   FROM "phone"
-  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '4155551234', 1)
+  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '5549414620', 1)
   ORDER BY score(1) DESC
 ),
 identities AS (
   SELECT "DATA", score(2) iscore
   FROM "identity"
-  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%6789', 2)
+  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%1007', 2)
 ),
 accounts AS (
   SELECT "DATA", score(3) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '1234', 3)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '5005', 3)
 ),
 addresses AS (
   SELECT "DATA"
@@ -524,30 +529,30 @@ joined AS (
     a."DATA" address_data,
     (p.pscore + i.iscore + ac.ascore) / 3 ranking_score
   FROM phones p
-  JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-  JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-  JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+  JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT json {
+SELECT /*+ MONITOR */ json {
   'rankingScore' : j.ranking_score,
-  'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-  'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-  'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-  'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+  'ecn' : j.identity_data."_id"."customerNumber".string(),
+  'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+  'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+  'name' : j.identity_data."common"."fullName".string(),
   'alternateName' : CASE
-    WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-    THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-    ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+    WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+    THEN j.identity_data."individual"."firstName".string()
+    ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
   END,
-  'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-  'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-  'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-  'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-  'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-  'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-  'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-  'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-  'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+  'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+  'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+  'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+  'addressLine' : j.address_data."addresses"."addressLine1".string(),
+  'cityName' : j.address_data."addresses"."cityName".string(),
+  'state' : j.address_data."addresses"."stateCode".string(),
+  'postalCode' : j.address_data."addresses"."postalCode".string(),
+  'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+  'customerType' : j.identity_data."common"."customerType".string()
 }
 FROM joined j
 ORDER BY j.ranking_score DESC
@@ -555,7 +560,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 14, 2025):**
+**Query Plan (December 15, 2025 - Dot Notation):**
 ```
 ---------------------------------------------------------------------------------------------------------
 | Id  | Operation                         | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
@@ -593,7 +598,7 @@ WITH
 phones AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) pscore
   FROM "phone"
-  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '4155551234', 1)
+  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '5549414620', 1)
   ORDER BY score(1) DESC
 ),
 identities AS (
@@ -603,7 +608,7 @@ identities AS (
 accounts AS (
   SELECT "DATA", score(2) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '1234', 2)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '5005', 2)
 ),
 addresses AS (
   SELECT "DATA"
@@ -617,30 +622,30 @@ joined AS (
     a."DATA" address_data,
     (p.pscore + ac.ascore) / 2 ranking_score
   FROM phones p
-  JOIN identities i ON JSON_VALUE(i."DATA", '$._id.customerNumber') = JSON_VALUE(p."DATA", '$.phoneKey.customerNumber')
-  JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-  JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN identities i ON i."DATA"."_id"."customerNumber".string() = p."DATA"."phoneKey"."customerNumber".string()
+  JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT json {
+SELECT /*+ MONITOR */ json {
   'rankingScore' : j.ranking_score,
-  'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-  'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-  'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-  'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+  'ecn' : j.identity_data."_id"."customerNumber".string(),
+  'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+  'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+  'name' : j.identity_data."common"."fullName".string(),
   'alternateName' : CASE
-    WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-    THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-    ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+    WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+    THEN j.identity_data."individual"."firstName".string()
+    ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
   END,
-  'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-  'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-  'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-  'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-  'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-  'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-  'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-  'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-  'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+  'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+  'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+  'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+  'addressLine' : j.address_data."addresses"."addressLine1".string(),
+  'cityName' : j.address_data."addresses"."cityName".string(),
+  'state' : j.address_data."addresses"."stateCode".string(),
+  'postalCode' : j.address_data."addresses"."postalCode".string(),
+  'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+  'customerType' : j.identity_data."common"."customerType".string()
 }
 FROM joined j
 ORDER BY j.ranking_score DESC
@@ -648,7 +653,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 14, 2025):**
+**Query Plan (December 15, 2025 - Dot Notation):**
 ```
 ------------------------------------------------------------------------------------------------------------------
 | Id  | Operation                                 | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |
@@ -707,29 +712,29 @@ joined AS (
     a."DATA" address_data,
     (ac.ascore + i.iscore) / 2 ranking_score
   FROM accounts ac
-  JOIN identities i ON JSON_VALUE(ac."DATA", '$.accountKey.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-  JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN identities i ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT json {
+SELECT /*+ MONITOR */ json {
   'rankingScore' : j.ranking_score,
-  'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-  'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-  'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-  'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+  'ecn' : j.identity_data."_id"."customerNumber".string(),
+  'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+  'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+  'name' : j.identity_data."common"."fullName".string(),
   'alternateName' : CASE
-    WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-    THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-    ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+    WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+    THEN j.identity_data."individual"."firstName".string()
+    ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
   END,
-  'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-  'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-  'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-  'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-  'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-  'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-  'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-  'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-  'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+  'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+  'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+  'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+  'addressLine' : j.address_data."addresses"."addressLine1".string(),
+  'cityName' : j.address_data."addresses"."cityName".string(),
+  'state' : j.address_data."addresses"."stateCode".string(),
+  'postalCode' : j.address_data."addresses"."postalCode".string(),
+  'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+  'customerType' : j.identity_data."common"."customerType".string()
 }
 FROM joined j
 ORDER BY j.ranking_score DESC
@@ -737,7 +742,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 14, 2025):**
+**Query Plan (December 15, 2025 - Dot Notation):**
 ```
 --------------------------------------------------------------------------------------------------------
 | Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
@@ -766,26 +771,28 @@ Predicate Information:
 
 ### UC-5: City/State/ZIP + SSN + Account Last 4
 
+**Note:** WHERE clause uses JSON_VALUE for array access (dot notation doesn't work in WHERE for arrays).
+
 ```javascript
 db.aggregate([{"$sql": `
 WITH
 addresses AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) addr_score
   FROM "address"
-  WHERE json_textcontains("DATA", '$."addresses"."cityName"', 'San Francisco', 1)
-    AND JSON_VALUE("DATA", '$.addresses.stateCode') = 'CA'
-    AND JSON_VALUE("DATA", '$.addresses.postalCode') = '94102'
+  WHERE json_textcontains("DATA", '$."addresses"."cityName"', 'South Wilbertfurt', 1)
+    AND JSON_VALUE("DATA", '$.addresses[0].stateCode') = 'CA'
+    AND JSON_VALUE("DATA", '$.addresses[0].postalCode') = '54717'
   ORDER BY score(1) DESC
 ),
 identities AS (
   SELECT "DATA", score(2) iscore
   FROM "identity"
-  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%6789', 2)
+  WHERE json_textcontains("DATA", '$."common"."taxIdentificationNumber"', '%1007', 2)
 ),
 accounts AS (
   SELECT "DATA", score(3) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '1234', 3)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumberLast4"', '5005', 3)
 ),
 joined AS (
   SELECT
@@ -794,29 +801,29 @@ joined AS (
     ac."DATA" account_data,
     (a.addr_score + i.iscore + ac.ascore) / 3 ranking_score
   FROM addresses a
-  JOIN identities i ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-  JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN identities i ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+  JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT json {
+SELECT /*+ MONITOR */ json {
   'rankingScore' : j.ranking_score,
-  'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-  'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-  'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-  'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+  'ecn' : j.identity_data."_id"."customerNumber".string(),
+  'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+  'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+  'name' : j.identity_data."common"."fullName".string(),
   'alternateName' : CASE
-    WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-    THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-    ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+    WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+    THEN j.identity_data."individual"."firstName".string()
+    ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
   END,
-  'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-  'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-  'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-  'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-  'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-  'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-  'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-  'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-  'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+  'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+  'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+  'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+  'addressLine' : j.address_data."addresses"."addressLine1".string(),
+  'cityName' : j.address_data."addresses"."cityName".string(),
+  'state' : j.address_data."addresses"."stateCode".string(),
+  'postalCode' : j.address_data."addresses"."postalCode".string(),
+  'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+  'customerType' : j.identity_data."common"."customerType".string()
 }
 FROM joined j
 ORDER BY j.ranking_score DESC
@@ -824,9 +831,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Note:** City search uses `$.addresses.cityName` (without array index) to match any element in the addresses array.
-
-**Query Plan (December 14, 2025):**
+**Query Plan (December 15, 2025 - Dot Notation):**
 ```
 -----------------------------------------------------------------------------------------------------------------
 | Id  | Operation                                | Name                 | Rows  | Bytes | Cost (%CPU)| Time     |
@@ -929,7 +934,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 14, 2025):**
+**Query Plan (December 15, 2025 - Dot Notation):**
 ```
 --------------------------------------------------------------------------------------------------------
 | Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
@@ -966,18 +971,18 @@ WITH
 identities AS (
   SELECT /*+ DOMAIN_INDEX_SORT */ "DATA", score(1) iscore
   FROM "identity"
-  WHERE json_textcontains("DATA", '$."primaryEmail"', 'john.smith@example.com', 1)
+  WHERE json_textcontains("DATA", '$."emails"."emailAddress"', 'ashields', 1)
   ORDER BY score(1) DESC
 ),
 phones AS (
   SELECT "DATA", score(2) pscore
   FROM "phone"
-  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '4155551234', 2)
+  WHERE json_textcontains("DATA", '$."phoneKey"."phoneNumber"', '5549414620', 2)
 ),
 accounts AS (
   SELECT "DATA", score(3) ascore
   FROM "account"
-  WHERE json_textcontains("DATA", '$."accountKey"."accountNumber"', '1234567890', 3)
+  WHERE json_textcontains("DATA", '$."accountKey"."accountNumber"', '100000375005', 3)
 ),
 addresses AS (
   SELECT "DATA"
@@ -991,30 +996,30 @@ joined AS (
     a."DATA" address_data,
     (i.iscore + p.pscore + ac.ascore) / 3 combined_score
   FROM identities i
-  JOIN phones p ON JSON_VALUE(p."DATA", '$.phoneKey.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-  JOIN accounts ac ON JSON_VALUE(ac."DATA", '$.accountHolders[0].customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
-  JOIN addresses a ON JSON_VALUE(a."DATA", '$._id.customerNumber') = JSON_VALUE(i."DATA", '$._id.customerNumber')
+  JOIN phones p ON p."DATA"."phoneKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+  JOIN accounts ac ON ac."DATA"."accountKey"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
+  JOIN addresses a ON a."DATA"."_id"."customerNumber".string() = i."DATA"."_id"."customerNumber".string()
 )
-SELECT json {
+SELECT /*+ MONITOR */ json {
   'rankingScore' : j.combined_score,
-  'ecn' : JSON_VALUE(j.identity_data, '$._id.customerNumber'),
-  'companyId' : NVL(JSON_VALUE(j.identity_data, '$._id.customerCompanyNumber'), 1),
-  'entityType' : JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator'),
-  'name' : JSON_VALUE(j.identity_data, '$.common.fullName'),
+  'ecn' : j.identity_data."_id"."customerNumber".string(),
+  'companyId' : NVL(j.identity_data."_id"."customerCompanyNumber".string(), 1),
+  'entityType' : j.identity_data."common"."entityTypeIndicator".string(),
+  'name' : j.identity_data."common"."fullName".string(),
   'alternateName' : CASE
-    WHEN JSON_VALUE(j.identity_data, '$.common.entityTypeIndicator') = 'INDIVIDUAL'
-    THEN JSON_VALUE(j.identity_data, '$.individual.firstName')
-    ELSE JSON_VALUE(j.identity_data, '$.nonIndividual.businessDescriptionText')
+    WHEN j.identity_data."common"."entityTypeIndicator".string() = 'INDIVIDUAL'
+    THEN j.identity_data."individual"."firstName".string()
+    ELSE j.identity_data."nonIndividual"."businessDescriptionText".string()
   END,
-  'taxIdNumber' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationNumber'),
-  'taxIdType' : JSON_VALUE(j.identity_data, '$.common.taxIdentificationType'),
-  'birthDate' : JSON_VALUE(j.identity_data, '$.individual.dateOfBirth'),
-  'addressLine' : JSON_VALUE(j.address_data, '$.addresses.addressLine1'),
-  'cityName' : JSON_VALUE(j.address_data, '$.addresses.cityName'),
-  'state' : JSON_VALUE(j.address_data, '$.addresses.stateCode'),
-  'postalCode' : JSON_VALUE(j.address_data, '$.addresses.postalCode'),
-  'countryCode' : NVL(JSON_VALUE(j.address_data, '$.addresses.countryCode'), 'US'),
-  'customerType' : JSON_VALUE(j.identity_data, '$.common.customerType')
+  'taxIdNumber' : j.identity_data."common"."taxIdentificationNumber".string(),
+  'taxIdType' : j.identity_data."common"."taxIdentificationType".string(),
+  'birthDate' : j.identity_data."individual"."dateOfBirth".string(),
+  'addressLine' : j.address_data."addresses"."addressLine1".string(),
+  'cityName' : j.address_data."addresses"."cityName".string(),
+  'state' : j.address_data."addresses"."stateCode".string(),
+  'postalCode' : j.address_data."addresses"."postalCode".string(),
+  'countryCode' : NVL(j.address_data."addresses"."countryCode".string(), 'US'),
+  'customerType' : j.identity_data."common"."customerType".string()
 }
 FROM joined j
 ORDER BY j.combined_score DESC
@@ -1022,7 +1027,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
-**Query Plan (December 14, 2025):**
+**Query Plan (December 15, 2025 - Dot Notation):**
 ```
 ---------------------------------------------------------------------------------------------------------
 | Id  | Operation                         | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
