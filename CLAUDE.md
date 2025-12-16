@@ -48,6 +48,8 @@ The Oracle MongoDB API connection string has a specific format:
 mongodb://admin:PASSWORD@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloudapps.com:27017/[user]?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true
 ```
 
+**Credentials:** See `db-secrets.yaml` (gitignored) for actual password.
+
 **Important notes:**
 - The database path MUST be `/[user]` (with literal brackets) - NOT `/admin` or other database names
 - `authSource=$external` is required for Oracle ADB authentication
@@ -58,8 +60,8 @@ mongodb://admin:PASSWORD@MQSSYOWMQVGAC1Y-WELLSFARGO.adb.us-ashburn-1.oraclecloud
 When passing the connection string via SSH, the `!` and `$` characters cause shell escaping issues. Use base64 encoding to transfer safely:
 
 ```bash
-# Encode locally
-printf '%s' 'mongodb://admin:OracleJson1!@...' | base64
+# Encode locally (get connection string from db-secrets.yaml)
+printf '%s' 'mongodb://admin:PASSWORD@...' | base64
 
 # Decode on remote and save to file
 ssh -i ~/.ssh/phoenix opc@129.213.29.234 "echo 'BASE64_STRING' | base64 -d > ~/connstr.txt"
@@ -139,7 +141,7 @@ The hybrid search command requires a JDBC URL for Oracle Text and vector search 
 - **Wallet Location:** `/home/opc/rick/wallet_wellsfargo/`
 - **TNS Names File:** `/home/opc/rick/wallet_wellsfargo/tnsnames.ora`
 - **Username:** `ADMIN` (uppercase required for JDBC)
-- **Password:** `OracleJson1!` (contains `!` - see escaping notes below)
+- **Password:** See `db-secrets.yaml` (contains `!` - see escaping notes below)
 - **Service Names:** `wellsfargo_low`, `wellsfargo_medium`, `wellsfargo_high`
 
 **JDBC URL Format (with wallet via TNS_ADMIN parameter):**
@@ -173,9 +175,9 @@ ssh -i ~/.ssh/phoenix opc@129.213.29.234 "export JAVA_HOME=/home/opc/jdk-23.0.1+
 3. The extracted password is stored in `$PASS` variable and used with proper quoting
 
 **DO NOT use these approaches (they fail):**
-- `-p 'OracleJson1!'` - bash history expansion mangles the `!`
-- `-p "OracleJson1!"` - still gets escaped in double quotes
-- `-p OracleJson1\!` - backslash gets passed literally
+- `-p 'PASSWORD!'` - bash history expansion mangles the `!`
+- `-p "PASSWORD!"` - still gets escaped in double quotes
+- `-p PASSWORD\!` - backslash gets passed literally
 
 **JDBC URL Format (without wallet - NOT RECOMMENDED):**
 ```
