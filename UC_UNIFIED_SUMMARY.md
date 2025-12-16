@@ -9,24 +9,19 @@
 - [Response Format](#response-format)
 - [Data Model](#data-model)
 - [Query Implementation](#query-implementation)
-- [Appendix: Complete Query Syntax](#appendix-complete-query-syntax)
-- [Appendix: Explain Plans](#appendix-explain-plans)
+- [Appendix: Complete Query Syntax with Execution Plans](#appendix-complete-query-syntax)
 
 ---
 
 ## Executive Summary
 
-This document presents benchmark results for the UC 1-11 unified customer search implementation using Oracle Autonomous Database 23ai with MongoDB API compatibility. The solution leverages the `$sql` aggregation operator with `json_textcontains()` for fuzzy text matching across multiple JSON document collections.
+This document presents benchmark results for the UC 1-11 unified customer search implementation using Oracle Autonomous Database 26ai with MongoDB API compatibility. The solution leverages the `$sql` aggregation operator with `json_textcontains()` for full text matching across multiple JSON document collections.
 
 **Key Results:**
 - All 11 use cases execute in under 55ms average latency
 - Queries perform cross-collection JOINs on 6 million documents
-- Fuzzy matching with relevance scoring on all search conditions
+- Full text matching with relevance scoring on all search conditions
 - Results ranked by combined relevance score
-
-**Key Optimizations Applied:**
-- UC-9: Use `JSON_VALUE(...error on error)` for optional filters instead of dot notation
-- UC-10: Escape hyphens with backslash (`\-`) to prevent text search tokenization
 
 ---
 
@@ -35,7 +30,7 @@ This document presents benchmark results for the UC 1-11 unified customer search
 ### Database Platform
 | Component | Specification |
 |-----------|---------------|
-| **Database** | Oracle Autonomous Database 23ai |
+| **Database** | Oracle Autonomous Database 26ai |
 | **Service** | Autonomous JSON Database (AJD) |
 | **Region** | Oracle Cloud US-Ashburn-1 |
 | **Workload Type** | JSON Document Store |
@@ -54,7 +49,7 @@ This document presents benchmark results for the UC 1-11 unified customer search
 |---------|-------|
 | **OCPU Count** | 1 OCPU (auto-scaling disabled) |
 | **Storage** | 1 TB |
-| **Database Version** | 23ai |
+| **Database Version** | 26ai |
 | **Character Set** | AL32UTF8 |
 
 ### Test Parameters
@@ -176,7 +171,6 @@ Search for customers by full account number with optional product type and compa
 | **Collections** | account, identity, address |
 | **Search Fields** | Account number, Product type (optional), Company ID (optional) |
 | **Score** | Text search score |
-| **Optimization** | Uses `JSON_VALUE(...error on error)` for optional filters |
 
 ### UC-10: Tokenized Account (Hyphenated)
 Search for customers by tokenized/hyphenated account number (XXXX-XXXX-XXXX format).
@@ -186,7 +180,6 @@ Search for customers by tokenized/hyphenated account number (XXXX-XXXX-XXXX form
 | **Collections** | account, identity, address |
 | **Search Fields** | Account number in hyphenated format |
 | **Score** | Text search score |
-| **Optimization** | Escape hyphens with `\-` to prevent tokenization |
 
 ### UC-11: Phone (Full 10-digit)
 Search for customers by full 10-digit phone number.
@@ -327,11 +320,21 @@ All UC queries return results in a standardized JSON format:
 
 ## Query Implementation
 
+### Oracle MongoDB API $sql Extension
+
+The UC 1-11 queries leverage Oracle's MongoDB API `$sql` aggregation operator, providing significant advantages over standard MongoDB aggregation pipelines:
+
+- **No 16MB Document Limit** - Unlike standard MongoDB aggregation stages that are constrained by the BSON 16MB document size limit, `$sql` bypasses this limitation entirely, enabling queries to process and return result sets of any size
+- **Optimized SQL Query Engine** - Developers and DBAs can harness the full power of Oracle's cost-based optimizer, parallel query execution, and mature execution plan analysis tools
+- **Cross-Collection JOINs** - Native SQL JOIN syntax enables efficient multi-collection queries with proper index utilization, eliminating the need for `$lookup` stages and their associated memory overhead
+- **Oracle Text Integration** - Full access to Oracle Text features including full text matching, wildcard search, phonetic matching, and relevance scoring through `json_textcontains()` and `score()` functions
+- **Familiar SQL Syntax** - Teams can leverage existing SQL expertise for complex queries while maintaining MongoDB wire protocol compatibility for application integration
+
 ### Architecture
 
 Queries use a Common Table Expression (CTE) pattern:
 
-1. **Collection CTEs** - Each collection has a CTE with `json_textcontains()` for fuzzy matching
+1. **Collection CTEs** - Each collection has a CTE with `json_textcontains()` for full text matching
 2. **Joined CTE** - INNER JOINs on customerNumber with combined score calculation
 3. **Result Selection** - JSON output construction with ranking
 
@@ -339,7 +342,7 @@ Queries use a Common Table Expression (CTE) pattern:
 
 | Technique | Description |
 |-----------|-------------|
-| `json_textcontains()` | Oracle Text fuzzy search on JSON fields |
+| `json_textcontains()` | Oracle Text full text search on JSON fields |
 | `score(n)` | Relevance score extraction (0-100) |
 | Dot notation | `alias."DATA"."field".string()` for efficient field access |
 | `json_exists()` | Filter predicate for array element matching |
@@ -381,7 +384,7 @@ FETCH FIRST 10 ROWS ONLY
 
 ---
 
-## Appendix: Complete Query Syntax
+## Appendix: Complete Query Syntax with Execution Plans
 
 ### UC-1: Phone + SSN Last 4
 
@@ -438,6 +441,31 @@ FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Execution Plan:**
+```
+Plan hash value: 2687655126
+
+--------------------------------------------------------------------------------------------------------
+| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
+--------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |  1181   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |
+|   2 |   VIEW                           |                     |     1 |  4115 |  1181   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3899 |  1181   (1)| 00:00:01 |
+|   4 |     NESTED LOOPS                 |                     |     1 |  3899 |  1180   (0)| 00:00:01 |
+|*  5 |      HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |
+|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |
+|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
+|   8 |       TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |
+|*  9 |        DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |
+|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
+--------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   7 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
+   9 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
 ```
 
 ---
@@ -506,6 +534,36 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Execution Plan:**
+```
+Plan hash value: 1443162883
+
+----------------------------------------------------------------------------------------------------------------
+| Id  | Operation                                | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
+----------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                         |                     |     5 | 20575 |  1509   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                           |                     |       |       |            |          |
+|   2 |   VIEW                                   |                     |     5 | 20575 |  1509   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY                 |                     |     5 | 24880 |  1509   (1)| 00:00:01 |
+|*  4 |     HASH JOIN                            |                     |     5 | 24880 |  1508   (0)| 00:00:01 |
+|   5 |      NESTED LOOPS                        |                     |     1 |  3899 |  1180   (0)| 00:00:01 |
+|*  6 |       HASH JOIN                          |                     |     1 |  3886 |  1177   (0)| 00:00:01 |
+|   7 |        TABLE ACCESS BY INDEX ROWID       | identity            |   500 |  1001K|   342   (0)| 00:00:01 |
+|*  8 |         DOMAIN INDEX                     | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID       | phone               |  1250 |  2238K|   834   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX                     | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |
+|  11 |       TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |     3   (0)| 00:00:01 |
+|* 12 |        INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
+|  13 |      TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|   328   (0)| 00:00:01 |
+|* 14 |       DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     4   (0)| 00:00:01 |
+----------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   8 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
+  10 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
+  14 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
+```
+
 ---
 
 ### UC-3: Phone + Account Last 4
@@ -571,6 +629,34 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Execution Plan:**
+```
+Plan hash value: 3809329927
+
+--------------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                                 | Name                 | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+--------------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                          |                      |    10 | 41150 |       | 17698   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                            |                      |       |       |       |            |          |
+|   2 |   VIEW                                    |                      |  9375 |    36M|       | 17698   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY                  |                      |  9375 |    44M|    73M| 17698   (1)| 00:00:01 |
+|*  4 |     HASH JOIN                             |                      |  9375 |    44M|       |  8664   (1)| 00:00:01 |
+|   5 |      TABLE ACCESS BY INDEX ROWID          | account              |   750 |   788K|       |   328   (0)| 00:00:01 |
+|*  6 |       DOMAIN INDEX                        | IDX_ACCOUNT_TEXT     |       |       |       |     4   (0)| 00:00:01 |
+|   7 |      NESTED LOOPS                         |                      |  1250 |  4744K|       |  8336   (1)| 00:00:01 |
+|   8 |       NESTED LOOPS                        |                      |  1250 |  4729K|       |  4585   (1)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID        | phone                |  1250 |  2238K|       |   834   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX                      | IDX_PHONE_SEARCH     |       |       |       |     4   (0)| 00:00:01 |
+|  11 |        TABLE ACCESS BY INDEX ROWID BATCHED| identity             |     1 |  2040 |       |     3   (0)| 00:00:01 |
+|* 12 |         INDEX RANGE SCAN                  | IDX_IDENTITY_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
+|* 13 |       INDEX RANGE SCAN                    | IDX_ADDRESS_CUSTNUM  |     1 |       |       |     2   (0)| 00:00:01 |
+--------------------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   6 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
+  10 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
+```
+
 ---
 
 ### UC-4: Account Number + SSN Last 4
@@ -628,6 +714,32 @@ FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Execution Plan:**
+```
+Plan hash value: 2721229334
+
+------------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                                | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+------------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                         |                     |    10 | 41150 |       |  4456   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                           |                     |       |       |       |            |          |
+|   2 |   VIEW                                   |                     |  3750 |    14M|       |  4456   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY                 |                     |  3750 |    11M|    14M|  4456   (1)| 00:00:01 |
+|*  4 |     HASH JOIN                            |                     |  3750 |    11M|       |  2171   (1)| 00:00:01 |
+|   5 |      NESTED LOOPS                        |                     |   500 |  1002K|       |  1843   (1)| 00:00:01 |
+|   6 |       TABLE ACCESS BY INDEX ROWID        | identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
+|*  7 |        DOMAIN INDEX                      | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|   8 |       TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |       |     3   (0)| 00:00:01 |
+|*  9 |        INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
+|  10 |      TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|       |   328   (0)| 00:00:01 |
+|* 11 |       DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |       |     4   (0)| 00:00:01 |
+------------------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   7 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
+  11 - access(CONTAINS(account.DATA,'(100000375005) INPATH (/accountKey/accountNumber)')>0)
 ```
 
 ---
@@ -691,6 +803,34 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Execution Plan:**
+```
+Plan hash value: 2514249749
+
+--------------------------------------------------------------------------------------------------------
+| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
+--------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |   960   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |
+|   2 |   VIEW                           |                     |     1 |  4115 |   960   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  4691 |   960   (1)| 00:00:01 |
+|*  4 |     HASH JOIN                    |                     |     1 |  4691 |   959   (1)| 00:00:01 |
+|*  5 |      HASH JOIN                   |                     |     1 |  3614 |   631   (1)| 00:00:01 |
+|*  6 |       TABLE ACCESS BY INDEX ROWID| address             |     5 |  7865 |   288   (0)| 00:00:01 |
+|*  7 |        DOMAIN INDEX              | IDX_ADDRESS_SEARCH  |       |       |     4   (0)| 00:00:01 |
+|   8 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|   342   (0)| 00:00:01 |
+|*  9 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
+|  10 |      TABLE ACCESS BY INDEX ROWID | account             |   750 |   788K|   328   (0)| 00:00:01 |
+|* 11 |       DOMAIN INDEX               | IDX_ACCOUNT_TEXT    |       |       |     4   (0)| 00:00:01 |
+--------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   6 - filter(JSON_EXISTS(address.DATA, '$.addresses[0]?(@.stateCode == $b1 && @.postalCode == $b2)'))
+   7 - access(CONTAINS(address.DATA,'(South Wilbertfurt) INPATH (/addresses/cityName)')>0)
+   9 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
+  11 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
+```
+
 ---
 
 ### UC-6: Email + Account Last 4
@@ -748,6 +888,32 @@ FROM joined j
 ORDER BY j.ranking_score DESC
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Execution Plan:**
+```
+Plan hash value: 2721229334
+
+------------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                                | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+------------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                         |                     |    10 | 41150 |       |  4456   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                           |                     |       |       |       |            |          |
+|   2 |   VIEW                                   |                     |  3750 |    14M|       |  4456   (1)| 00:00:01 |
+|*  3 |    SORT ORDER BY STOPKEY                 |                     |  3750 |    11M|    14M|  4456   (1)| 00:00:01 |
+|*  4 |     HASH JOIN                            |                     |  3750 |    11M|       |  2171   (1)| 00:00:01 |
+|   5 |      NESTED LOOPS                        |                     |   500 |  1002K|       |  1843   (1)| 00:00:01 |
+|   6 |       TABLE ACCESS BY INDEX ROWID        | identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
+|*  7 |        DOMAIN INDEX                      | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|   8 |       TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |       |     3   (0)| 00:00:01 |
+|*  9 |        INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
+|  10 |      TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|       |   328   (0)| 00:00:01 |
+|* 11 |       DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |       |     4   (0)| 00:00:01 |
+------------------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   7 - access(CONTAINS(identity.DATA,'(ashields) INPATH (/emails/emailAddress)')>0)
+  11 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
 ```
 
 ---
@@ -816,6 +982,36 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Execution Plan:**
+```
+Plan hash value: 1678481105
+
+-------------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                                 | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
+-------------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                          |                     |    10 | 41150 |       | 48174   (1)| 00:00:02 |
+|*  1 |  COUNT STOPKEY                            |                     |       |       |       |            |          |
+|   2 |   VIEW                                    |                     | 46875 |   183M|       | 48174   (1)| 00:00:02 |
+|*  3 |    SORT ORDER BY STOPKEY                  |                     | 46875 |   221M|   366M| 48174   (1)| 00:00:02 |
+|*  4 |     HASH JOIN                             |                     | 46875 |   221M|       |  3005   (0)| 00:00:01 |
+|   5 |      TABLE ACCESS BY INDEX ROWID          | phone               |  1250 |  2238K|       |   834   (0)| 00:00:01 |
+|*  6 |       DOMAIN INDEX                        | IDX_PHONE_SEARCH    |       |       |       |     4   (0)| 00:00:01 |
+|*  7 |      HASH JOIN                            |                     |  3750 |    11M|       |  2171   (1)| 00:00:01 |
+|   8 |       NESTED LOOPS                        |                     |   500 |  1002K|       |  1843   (1)| 00:00:01 |
+|   9 |        TABLE ACCESS BY INDEX ROWID        | identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
+|* 10 |         DOMAIN INDEX                      | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
+|  11 |        TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |       |     3   (0)| 00:00:01 |
+|* 12 |         INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
+|  13 |       TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|       |   328   (0)| 00:00:01 |
+|* 14 |        DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |       |     4   (0)| 00:00:01 |
+-------------------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   6 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
+  10 - access(CONTAINS(identity.DATA,'(ashields) INPATH (/emails/emailAddress)')>0)
+  14 - access(CONTAINS(account.DATA,'(100000375005) INPATH (/accountKey/accountNumber)')>0)
+```
+
 ---
 
 ### UC-8: TIN (Full 9-digit)
@@ -864,11 +1060,29 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Execution Plan:**
+```
+Plan hash value: 3979866288
+
+------------------------------------------------------------------------------------------------------
+| Id  | Operation                      | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
+------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT               |                     |    10 | 41150 |    38   (3)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                 |                     |       |       |            |          |
+|   2 |   VIEW                         |                     |    10 | 41150 |    38   (3)| 00:00:01 |
+|   3 |    NESTED LOOPS                |                     |    10 | 20540 |    38   (3)| 00:00:01 |
+|   4 |     TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|     8  (13)| 00:00:01 |
+|*  5 |      DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     0   (0)| 00:00:01 |
+|*  6 |     INDEX RANGE SCAN           | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
+------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   5 - access(CONTAINS(identity.DATA,'(855611007) INPATH (/common/taxIdentificationNumber)')>0)
+```
+
 ---
 
 ### UC-9: Account Number + Optional Filters
-
-**Optimization:** Use `JSON_VALUE(...error on error)` for optional filters - improved from 325ms to 53ms.
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -904,11 +1118,33 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
+**Execution Plan:**
+```
+Plan hash value: 1651662844
+
+---------------------------------------------------------------------------------------------------------------
+| Id  | Operation                               | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                        |                     |    10 | 46670 |   181   (0)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                          |                     |       |       |            |          |
+|   2 |   NESTED LOOPS                          |                     |    10 | 46670 |   181   (0)| 00:00:01 |
+|   3 |    NESTED LOOPS                         |                     |    11 | 34166 |   148   (0)| 00:00:01 |
+|*  4 |     TABLE ACCESS BY INDEX ROWID         | account             |     8 |  8616 |    44   (0)| 00:00:01 |
+|*  5 |      DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     1   (0)| 00:00:01 |
+|*  6 |     TABLE ACCESS STORAGE FULL FIRST ROWS| identity            |    11 | 22319 |   104   (0)| 00:00:01 |
+|   7 |    TABLE ACCESS BY INDEX ROWID BATCHED  | address             |     1 |  1561 |     3   (0)| 00:00:01 |
+|*  8 |     INDEX RANGE SCAN                    | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
+---------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   4 - filter(JSON_VALUE(ac.DATA, '$.productTypeCode' ERROR ON ERROR)='BROKERAGE')
+   5 - access(CONTAINS(account.DATA,'(100000375005) INPATH (/accountKey/accountNumber)')>0)
+   6 - storage + filter on customerNumber JOIN condition
+```
+
 ---
 
 ### UC-10: Tokenized Account (Hyphenated)
-
-**Optimization:** Escape hyphens with `\-` to prevent tokenization - improved from 456ms to 53ms and returns 1 result instead of 10.
 
 ```javascript
 db.aggregate([{"$sql": `
@@ -960,6 +1196,28 @@ SELECT json {
 FROM joined j
 FETCH FIRST 10 ROWS ONLY
 `}])
+```
+
+**Execution Plan:**
+```
+Plan hash value: 4227112093
+
+---------------------------------------------------------------------------------------------------------------
+| Id  | Operation                               | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                        |                     |    10 | 31190 |   126   (1)| 00:00:01 |
+|*  1 |  COUNT STOPKEY                          |                     |       |       |            |          |
+|   2 |   NESTED LOOPS                          |                     |    10 | 31190 |   126   (1)| 00:00:01 |
+|   3 |    NESTED LOOPS                         |                     |    10 | 31060 |    96   (2)| 00:00:01 |
+|   4 |     TABLE ACCESS BY INDEX ROWID         | account             |   500 |   525K|     0   (0)| 00:00:01 |
+|*  5 |      DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     0   (0)| 00:00:01 |
+|*  6 |     TABLE ACCESS STORAGE FULL FIRST ROWS| identity            |    10 | 20290 |    95   (0)| 00:00:01 |
+|*  7 |    INDEX RANGE SCAN                     | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
+---------------------------------------------------------------------------------------------------------------
+
+Predicate Information:
+   5 - access(CONTAINS(account.DATA,'(1000\-0037\-5005) INPATH (/accountKey/accountNumberHyphenated)')>0)
+   6 - storage + filter on customerNumber JOIN condition
 ```
 
 ---
@@ -1017,319 +1275,7 @@ FETCH FIRST 10 ROWS ONLY
 `}])
 ```
 
----
-
-### SQL Syntax Reference
-
-| Element | Syntax | Description |
-|---------|--------|-------------|
-| MongoDB $sql | `db.aggregate([{"$sql": \`...\`}])` | Execute SQL via MongoDB API |
-| Fuzzy search | `json_textcontains("DATA", '$.path', 'term', label)` | Text search with scoring |
-| Ends-with | `'%1007'` | Pattern matching suffix |
-| Score | `score(n)` | Get relevance score for label n |
-| JSON output | `SELECT json { 'key': value }` | Construct JSON result |
-| Dot notation | `alias."DATA"."field".string()` | Extract field as VARCHAR2 |
-| Array filter | `json_exists(data, '$.arr[0]?(@.f == $b)' passing 'v' as "b")` | Filter array elements |
-
----
-
-## Appendix: Explain Plans
-
-### UC-1: Phone + SSN Last 4
-
-```
-Plan hash value: 2687655126
-
---------------------------------------------------------------------------------------------------------
-| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
---------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |  1181   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |
-|   2 |   VIEW                           |                     |     1 |  4115 |  1181   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  3899 |  1181   (1)| 00:00:01 |
-|   4 |     NESTED LOOPS                 |                     |     1 |  3899 |  1180   (0)| 00:00:01 |
-|*  5 |      HASH JOIN                   |                     |     1 |  3886 |  1177   (0)| 00:00:01 |
-|   6 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |  1001K|   342   (0)| 00:00:01 |
-|*  7 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID| phone               |  1250 |  2238K|   834   (0)| 00:00:01 |
-|*  9 |        DOMAIN INDEX              | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |
-|* 10 |      INDEX RANGE SCAN            | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
---------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   7 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
-   9 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
-```
-
----
-
-### UC-2: Phone + SSN Last 4 + Account Last 4
-
-```
-Plan hash value: 1443162883
-
-----------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
-----------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                         |                     |     5 | 20575 |  1509   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                           |                     |       |       |            |          |
-|   2 |   VIEW                                   |                     |     5 | 20575 |  1509   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY                 |                     |     5 | 24880 |  1509   (1)| 00:00:01 |
-|*  4 |     HASH JOIN                            |                     |     5 | 24880 |  1508   (0)| 00:00:01 |
-|   5 |      NESTED LOOPS                        |                     |     1 |  3899 |  1180   (0)| 00:00:01 |
-|*  6 |       HASH JOIN                          |                     |     1 |  3886 |  1177   (0)| 00:00:01 |
-|   7 |        TABLE ACCESS BY INDEX ROWID       | identity            |   500 |  1001K|   342   (0)| 00:00:01 |
-|*  8 |         DOMAIN INDEX                     | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID       | phone               |  1250 |  2238K|   834   (0)| 00:00:01 |
-|* 10 |         DOMAIN INDEX                     | IDX_PHONE_SEARCH    |       |       |     4   (0)| 00:00:01 |
-|  11 |       TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |     3   (0)| 00:00:01 |
-|* 12 |        INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
-|  13 |      TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|   328   (0)| 00:00:01 |
-|* 14 |       DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     4   (0)| 00:00:01 |
-----------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   8 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
-  10 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
-  14 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
-```
-
----
-
-### UC-3: Phone + Account Last 4
-
-```
-Plan hash value: 3809329927
-
---------------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                 | Name                 | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
---------------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                          |                      |    10 | 41150 |       | 17698   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                            |                      |       |       |       |            |          |
-|   2 |   VIEW                                    |                      |  9375 |    36M|       | 17698   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY                  |                      |  9375 |    44M|    73M| 17698   (1)| 00:00:01 |
-|*  4 |     HASH JOIN                             |                      |  9375 |    44M|       |  8664   (1)| 00:00:01 |
-|   5 |      TABLE ACCESS BY INDEX ROWID          | account              |   750 |   788K|       |   328   (0)| 00:00:01 |
-|*  6 |       DOMAIN INDEX                        | IDX_ACCOUNT_TEXT     |       |       |       |     4   (0)| 00:00:01 |
-|   7 |      NESTED LOOPS                         |                      |  1250 |  4744K|       |  8336   (1)| 00:00:01 |
-|   8 |       NESTED LOOPS                        |                      |  1250 |  4729K|       |  4585   (1)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID        | phone                |  1250 |  2238K|       |   834   (0)| 00:00:01 |
-|* 10 |         DOMAIN INDEX                      | IDX_PHONE_SEARCH     |       |       |       |     4   (0)| 00:00:01 |
-|  11 |        TABLE ACCESS BY INDEX ROWID BATCHED| identity             |     1 |  2040 |       |     3   (0)| 00:00:01 |
-|* 12 |         INDEX RANGE SCAN                  | IDX_IDENTITY_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
-|* 13 |       INDEX RANGE SCAN                    | IDX_ADDRESS_CUSTNUM  |     1 |       |       |     2   (0)| 00:00:01 |
---------------------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   6 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
-  10 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
-```
-
----
-
-### UC-4: Account Number + SSN Last 4
-
-```
-Plan hash value: 2721229334
-
-------------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
-------------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                         |                     |    10 | 41150 |       |  4456   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                           |                     |       |       |       |            |          |
-|   2 |   VIEW                                   |                     |  3750 |    14M|       |  4456   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY                 |                     |  3750 |    11M|    14M|  4456   (1)| 00:00:01 |
-|*  4 |     HASH JOIN                            |                     |  3750 |    11M|       |  2171   (1)| 00:00:01 |
-|   5 |      NESTED LOOPS                        |                     |   500 |  1002K|       |  1843   (1)| 00:00:01 |
-|   6 |       TABLE ACCESS BY INDEX ROWID        | identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
-|*  7 |        DOMAIN INDEX                      | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |       |     3   (0)| 00:00:01 |
-|*  9 |        INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
-|  10 |      TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|       |   328   (0)| 00:00:01 |
-|* 11 |       DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |       |     4   (0)| 00:00:01 |
-------------------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   7 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
-  11 - access(CONTAINS(account.DATA,'(100000375005) INPATH (/accountKey/accountNumber)')>0)
-```
-
----
-
-### UC-5: City/State/ZIP + SSN Last 4 + Account Last 4
-
-```
-Plan hash value: 2514249749
-
---------------------------------------------------------------------------------------------------------
-| Id  | Operation                        | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
---------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                 |                     |     1 |  4115 |   960   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                   |                     |       |       |            |          |
-|   2 |   VIEW                           |                     |     1 |  4115 |   960   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY         |                     |     1 |  4691 |   960   (1)| 00:00:01 |
-|*  4 |     HASH JOIN                    |                     |     1 |  4691 |   959   (1)| 00:00:01 |
-|*  5 |      HASH JOIN                   |                     |     1 |  3614 |   631   (1)| 00:00:01 |
-|*  6 |       TABLE ACCESS BY INDEX ROWID| address             |     5 |  7865 |   288   (0)| 00:00:01 |
-|*  7 |        DOMAIN INDEX              | IDX_ADDRESS_SEARCH  |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|   342   (0)| 00:00:01 |
-|*  9 |        DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     4   (0)| 00:00:01 |
-|  10 |      TABLE ACCESS BY INDEX ROWID | account             |   750 |   788K|   328   (0)| 00:00:01 |
-|* 11 |       DOMAIN INDEX               | IDX_ACCOUNT_TEXT    |       |       |     4   (0)| 00:00:01 |
---------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   6 - filter(JSON_EXISTS(address.DATA, '$.addresses[0]?(@.stateCode == $b1 && @.postalCode == $b2)'))
-   7 - access(CONTAINS(address.DATA,'(South Wilbertfurt) INPATH (/addresses/cityName)')>0)
-   9 - access(CONTAINS(identity.DATA,'(%1007) INPATH (/common/taxIdentificationNumber)')>0)
-  11 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
-```
-
----
-
-### UC-6: Email + Account Last 4
-
-```
-Plan hash value: 2721229334
-
-------------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
-------------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                         |                     |    10 | 41150 |       |  4456   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                           |                     |       |       |       |            |          |
-|   2 |   VIEW                                   |                     |  3750 |    14M|       |  4456   (1)| 00:00:01 |
-|*  3 |    SORT ORDER BY STOPKEY                 |                     |  3750 |    11M|    14M|  4456   (1)| 00:00:01 |
-|*  4 |     HASH JOIN                            |                     |  3750 |    11M|       |  2171   (1)| 00:00:01 |
-|   5 |      NESTED LOOPS                        |                     |   500 |  1002K|       |  1843   (1)| 00:00:01 |
-|   6 |       TABLE ACCESS BY INDEX ROWID        | identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
-|*  7 |        DOMAIN INDEX                      | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
-|   8 |       TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |       |     3   (0)| 00:00:01 |
-|*  9 |        INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
-|  10 |      TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|       |   328   (0)| 00:00:01 |
-|* 11 |       DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |       |     4   (0)| 00:00:01 |
-------------------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   7 - access(CONTAINS(identity.DATA,'(ashields) INPATH (/emails/emailAddress)')>0)
-  11 - access(CONTAINS(account.DATA,'(5005) INPATH (/accountKey/accountNumberLast4)')>0)
-```
-
----
-
-### UC-7: Email + Phone + Account Number
-
-```
-Plan hash value: 1678481105
-
--------------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                                 | Name                | Rows  | Bytes |TempSpc| Cost (%CPU)| Time     |
--------------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                          |                     |    10 | 41150 |       | 48174   (1)| 00:00:02 |
-|*  1 |  COUNT STOPKEY                            |                     |       |       |       |            |          |
-|   2 |   VIEW                                    |                     | 46875 |   183M|       | 48174   (1)| 00:00:02 |
-|*  3 |    SORT ORDER BY STOPKEY                  |                     | 46875 |   221M|   366M| 48174   (1)| 00:00:02 |
-|*  4 |     HASH JOIN                             |                     | 46875 |   221M|       |  3005   (0)| 00:00:01 |
-|   5 |      TABLE ACCESS BY INDEX ROWID          | phone               |  1250 |  2238K|       |   834   (0)| 00:00:01 |
-|*  6 |       DOMAIN INDEX                        | IDX_PHONE_SEARCH    |       |       |       |     4   (0)| 00:00:01 |
-|*  7 |      HASH JOIN                            |                     |  3750 |    11M|       |  2171   (1)| 00:00:01 |
-|   8 |       NESTED LOOPS                        |                     |   500 |  1002K|       |  1843   (1)| 00:00:01 |
-|   9 |        TABLE ACCESS BY INDEX ROWID        | identity            |   500 |   996K|       |   342   (0)| 00:00:01 |
-|* 10 |         DOMAIN INDEX                      | IDX_IDENTITY_SEARCH |       |       |       |     4   (0)| 00:00:01 |
-|  11 |        TABLE ACCESS BY INDEX ROWID BATCHED| address             |     1 |    13 |       |     3   (0)| 00:00:01 |
-|* 12 |         INDEX RANGE SCAN                  | IDX_ADDRESS_CUSTNUM |     1 |       |       |     2   (0)| 00:00:01 |
-|  13 |       TABLE ACCESS BY INDEX ROWID         | account             |   750 |   788K|       |   328   (0)| 00:00:01 |
-|* 14 |        DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |       |     4   (0)| 00:00:01 |
--------------------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   6 - access(CONTAINS(phone.DATA,'(5549414620) INPATH (/phoneKey/phoneNumber)')>0)
-  10 - access(CONTAINS(identity.DATA,'(ashields) INPATH (/emails/emailAddress)')>0)
-  14 - access(CONTAINS(account.DATA,'(100000375005) INPATH (/accountKey/accountNumber)')>0)
-```
-
----
-
-### UC-8: TIN (Full 9-digit)
-
-```
-Plan hash value: 3979866288
-
-------------------------------------------------------------------------------------------------------
-| Id  | Operation                      | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
-------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT               |                     |    10 | 41150 |    38   (3)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                 |                     |       |       |            |          |
-|   2 |   VIEW                         |                     |    10 | 41150 |    38   (3)| 00:00:01 |
-|   3 |    NESTED LOOPS                |                     |    10 | 20540 |    38   (3)| 00:00:01 |
-|   4 |     TABLE ACCESS BY INDEX ROWID| identity            |   500 |   996K|     8  (13)| 00:00:01 |
-|*  5 |      DOMAIN INDEX              | IDX_IDENTITY_SEARCH |       |       |     0   (0)| 00:00:01 |
-|*  6 |     INDEX RANGE SCAN           | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
-------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   5 - access(CONTAINS(identity.DATA,'(855611007) INPATH (/common/taxIdentificationNumber)')>0)
-```
-
----
-
-### UC-9: Account Number + Optional Filters
-
-**Optimized:** Using `JSON_VALUE(...error on error)` reduced latency from 325ms to 53ms.
-
-```
-Plan hash value: 1651662844
-
----------------------------------------------------------------------------------------------------------------
-| Id  | Operation                               | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
----------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                        |                     |    10 | 46670 |   181   (0)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                          |                     |       |       |            |          |
-|   2 |   NESTED LOOPS                          |                     |    10 | 46670 |   181   (0)| 00:00:01 |
-|   3 |    NESTED LOOPS                         |                     |    11 | 34166 |   148   (0)| 00:00:01 |
-|*  4 |     TABLE ACCESS BY INDEX ROWID         | account             |     8 |  8616 |    44   (0)| 00:00:01 |
-|*  5 |      DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     1   (0)| 00:00:01 |
-|*  6 |     TABLE ACCESS STORAGE FULL FIRST ROWS| identity            |    11 | 22319 |   104   (0)| 00:00:01 |
-|   7 |    TABLE ACCESS BY INDEX ROWID BATCHED  | address             |     1 |  1561 |     3   (0)| 00:00:01 |
-|*  8 |     INDEX RANGE SCAN                    | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
----------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   4 - filter(JSON_VALUE(ac.DATA, '$.productTypeCode' ERROR ON ERROR)='BROKERAGE')
-   5 - access(CONTAINS(account.DATA,'(100000375005) INPATH (/accountKey/accountNumber)')>0)
-   6 - storage + filter on customerNumber JOIN condition
-```
-
----
-
-### UC-10: Tokenized Account (Hyphenated)
-
-**Optimized:** Escaping hyphens with `\-` reduced latency from 456ms to 53ms and returns 1 exact match.
-
-```
-Plan hash value: 4227112093
-
----------------------------------------------------------------------------------------------------------------
-| Id  | Operation                               | Name                | Rows  | Bytes | Cost (%CPU)| Time     |
----------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                        |                     |    10 | 31190 |   126   (1)| 00:00:01 |
-|*  1 |  COUNT STOPKEY                          |                     |       |       |            |          |
-|   2 |   NESTED LOOPS                          |                     |    10 | 31190 |   126   (1)| 00:00:01 |
-|   3 |    NESTED LOOPS                         |                     |    10 | 31060 |    96   (2)| 00:00:01 |
-|   4 |     TABLE ACCESS BY INDEX ROWID         | account             |   500 |   525K|     0   (0)| 00:00:01 |
-|*  5 |      DOMAIN INDEX                       | IDX_ACCOUNT_TEXT    |       |       |     0   (0)| 00:00:01 |
-|*  6 |     TABLE ACCESS STORAGE FULL FIRST ROWS| identity            |    10 | 20290 |    95   (0)| 00:00:01 |
-|*  7 |    INDEX RANGE SCAN                     | IDX_ADDRESS_CUSTNUM |     1 |       |     2   (0)| 00:00:01 |
----------------------------------------------------------------------------------------------------------------
-
-Predicate Information:
-   5 - access(CONTAINS(account.DATA,'(1000\-0037\-5005) INPATH (/accountKey/accountNumberHyphenated)')>0)
-   6 - storage + filter on customerNumber JOIN condition
-```
-
----
-
-### UC-11: Phone (Full 10-digit)
-
+**Execution Plan:**
 ```
 Plan hash value: 2875705814
 
@@ -1357,18 +1303,14 @@ Predicate Information:
 
 ---
 
-### Execution Plan Analysis Summary
+### SQL Syntax Reference
 
-| UC | Plan Hash | Key Operations | Domain Index Usage | Notes |
-|----|-----------|----------------|-------------------|-------|
-| UC-1 | 2687655126 | HASH JOIN + NESTED LOOPS | IDX_IDENTITY_SEARCH, IDX_PHONE_SEARCH | Optimal |
-| UC-2 | 1443162883 | HASH JOIN + NESTED LOOPS | IDX_IDENTITY_SEARCH, IDX_PHONE_SEARCH, IDX_ACCOUNT_TEXT | Optimal |
-| UC-3 | 3809329927 | HASH JOIN + NESTED LOOPS | IDX_PHONE_SEARCH, IDX_ACCOUNT_TEXT | TempSpc 73M |
-| UC-4 | 2721229334 | HASH JOIN + NESTED LOOPS | IDX_IDENTITY_SEARCH, IDX_ACCOUNT_TEXT | TempSpc 14M |
-| UC-5 | 2514249749 | HASH JOIN | IDX_ADDRESS_SEARCH, IDX_IDENTITY_SEARCH, IDX_ACCOUNT_TEXT | json_exists filter |
-| UC-6 | 2721229334 | HASH JOIN + NESTED LOOPS | IDX_IDENTITY_SEARCH, IDX_ACCOUNT_TEXT | TempSpc 14M |
-| UC-7 | 1678481105 | HASH JOIN | IDX_PHONE_SEARCH, IDX_IDENTITY_SEARCH, IDX_ACCOUNT_TEXT | TempSpc 366M |
-| UC-8 | 3979866288 | NESTED LOOPS only | IDX_IDENTITY_SEARCH | Very efficient |
-| UC-9 | 1651662844 | NESTED LOOPS | IDX_ACCOUNT_TEXT | Optimized with JSON_VALUE |
-| UC-10 | 4227112093 | NESTED LOOPS | IDX_ACCOUNT_TEXT | Optimized with escaped hyphens |
-| UC-11 | 2875705814 | HASH JOIN + BLOOM FILTER | IDX_PHONE_SEARCH | TempSpc 5008K |
+| Element | Syntax | Description |
+|---------|--------|-------------|
+| MongoDB $sql | `db.aggregate([{"$sql": \`...\`}])` | Execute SQL via MongoDB API |
+| Full text search | `json_textcontains("DATA", '$.path', 'term', label)` | Text search with scoring |
+| Ends-with | `'%1007'` | Pattern matching suffix |
+| Score | `score(n)` | Get relevance score for label n |
+| JSON output | `SELECT json { 'key': value }` | Construct JSON result |
+| Dot notation | `alias."DATA"."field".string()` | Extract field as VARCHAR2 |
+| Array filter | `json_exists(data, '$.arr[0]?(@.f == $b)' passing 'v' as "b")` | Filter array elements |
